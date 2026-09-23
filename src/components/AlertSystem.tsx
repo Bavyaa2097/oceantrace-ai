@@ -16,7 +16,7 @@ export const AlertSystem: React.FC<AlertSystemProps> = ({
   onDismiss,
 }) => {
   return (
-    <div className="fixed bottom-6 right-6 z-[500] max-w-md w-full glass-panel rounded-2xl border-2 border-red-500/80 p-5 shadow-[0_0_30px_rgba(239,68,68,0.3)] bg-navy-900/95 animate-bounce-slow">
+    <div className="alert-system fixed bottom-6 right-6 z-[500] max-w-md w-full glass-panel rounded-2xl border-2 border-red-500/80 p-5 shadow-[0_0_30px_rgba(239,68,68,0.3)] animate-bounce-slow">
       <div className="flex items-start justify-between">
         <div className="flex items-center gap-2">
           <div className="p-2 rounded-lg bg-red-950 text-red-400 border border-red-500/40">
@@ -29,22 +29,22 @@ export const AlertSystem: React.FC<AlertSystemProps> = ({
                 🔴 HIGH PRIORITY ALERT
               </span>
             </div>
-            <h3 className="font-bold text-white text-sm">New Oil Slick Detected</h3>
+            <h3 className="alert-system-title font-bold text-sm">New Oil Slick Detected</h3>
           </div>
         </div>
 
         <button
           onClick={onDismiss}
-          className="text-slate-400 hover:text-white p-1 rounded-md bg-slate-800"
+          className="alert-system-dismiss p-1 rounded-md"
         >
           <X className="w-4 h-4" />
         </button>
       </div>
 
-      <div className="mt-3 space-y-1.5 text-xs font-mono text-slate-300 bg-slate-950/60 p-3 rounded-lg border border-slate-800">
+      <div className="alert-system-details mt-3 space-y-1.5 text-xs font-mono p-3 rounded-lg">
         <div><strong>Location:</strong> {spillIncident.coordinates.lat}° N, {spillIncident.coordinates.lng}° E</div>
         <div><strong>Confidence:</strong> <span className="text-cyan-400 font-bold">{spillIncident.confidence}%</span></div>
-        <div className="text-amber-300 font-semibold mt-1">
+        <div className="alert-system-warning font-semibold mt-1">
           ⚠️ Potential vessel correlation detected (MV Ocean Star - 90.3%)
         </div>
       </div>
@@ -60,7 +60,7 @@ export const AlertSystem: React.FC<AlertSystemProps> = ({
 
         <button
           onClick={onViewMap}
-          className="flex-1 py-2 rounded-lg bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold text-xs transition-all flex items-center justify-center gap-1 shadow-[0_0_10px_rgba(6,182,212,0.4)]"
+          className="alert-system-map flex-1 py-2 rounded-lg font-bold text-xs transition-all flex items-center justify-center gap-1"
         >
           <Eye className="w-4 h-4" />
           <span>VIEW MAP</span>
@@ -69,4 +69,3 @@ export const AlertSystem: React.FC<AlertSystemProps> = ({
     </div>
   );
 };
-

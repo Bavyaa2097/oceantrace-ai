@@ -79,7 +79,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           <div>
             <div className="flex items-center gap-2">
               <span className="px-2 py-0.5 rounded bg-cyan-950 text-cyan-400 border border-cyan-500/30 text-[10px] font-mono font-bold">
-                SIH26143 AUTHENTICATION
+                SECURE AUTHENTICATION
               </span>
             </div>
             <h2 className="text-xl font-bold font-mono text-white mt-1">
@@ -159,7 +159,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 
             <button
               type="submit"
-              className="w-full py-3 rounded-lg bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-slate-950 font-extrabold text-xs shadow-lg transition-all flex items-center justify-center gap-2"
+              className="w-full py-3 rounded-lg bg-[#176B68] hover:bg-[#145452] text-white font-extrabold text-xs shadow-sm transition-all flex items-center justify-center gap-2"
             >
               <span>SIGN IN TO DASHBOARD</span>
               <ArrowRight className="w-4 h-4" />
@@ -255,7 +255,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 
             <button
               type="submit"
-              className="w-full py-3 rounded-lg bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-slate-950 font-extrabold text-xs shadow-lg transition-all flex items-center justify-center gap-2 mt-2"
+              className="w-full py-3 rounded-lg bg-[#176B68] hover:bg-[#145452] text-white font-extrabold text-xs shadow-sm transition-all flex items-center justify-center gap-2 mt-2"
             >
               <span>CREATE ACCOUNT</span>
               <CheckCircle2 className="w-4 h-4" />
@@ -280,4 +280,3 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     </div>
   );
 };
-

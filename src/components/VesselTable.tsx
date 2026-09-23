@@ -38,11 +38,11 @@ export const VesselTable: React.FC<VesselTableProps> = ({
                 AIS LIVE INTELLIGENCE
               </span>
               <span className="text-xs font-mono text-amber-400 bg-amber-900/20 border border-amber-500/20 px-2 py-0.5 rounded">
-                DEMO DATA
+                SAMPLE DATA
               </span>
             </div>
             <h1 className="text-2xl font-extrabold text-white mt-1 font-mono">
-              VESSEL TRAJECTORY & PROXIMITY INDEX
+              Vessel trajectory & proximity index
             </h1>
             <p className="text-sm text-slate-400 mt-0.5">
               Cross-correlate AIS position broadcasts of 1,284 tracked marine traffic vessels against the calculated spill release origin.

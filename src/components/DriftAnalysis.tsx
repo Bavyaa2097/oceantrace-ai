@@ -23,11 +23,11 @@ export const DriftAnalysis: React.FC<DriftAnalysisProps> = ({
                 HYDRODYNAMIC BACKTRACKING
               </span>
               <span className="text-xs font-mono text-amber-400 bg-amber-900/20 border border-amber-500/20 px-2 py-0.5 rounded">
-                DEMO DATA
+                SAMPLE DATA
               </span>
             </div>
             <h1 className="text-2xl font-extrabold text-white mt-1 font-mono">
-              DRIFT & PROBABLE SOURCE ORIGIN ANALYSIS
+              Drift & probable source origin analysis
             </h1>
             <p className="text-sm text-slate-400 mt-0.5">
               Reverse Lagrangian particle tracking using real-time NOAA GFS atmospheric winds and HYCOM ocean current vectors.

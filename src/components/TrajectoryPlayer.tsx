@@ -158,11 +158,11 @@ export const TrajectoryPlayer: React.FC<TrajectoryPlayerProps> = ({ vessel, spil
                 ANIMATED REPLAY ENGINE
               </span>
               <span className="text-xs font-mono text-amber-400 bg-amber-900/20 border border-amber-500/20 px-2 py-0.5 rounded">
-                DEMO DATA
+                SAMPLE DATA
               </span>
             </div>
             <h1 className="text-2xl font-extrabold text-white mt-1 font-mono">
-              VESSEL HISTORICAL TRAJECTORY REPLAY
+              Vessel historical trajectory replay
             </h1>
             <p className="text-sm text-slate-400 mt-0.5">
               Animate vessel movement along recorded AIS tracks to verify spatial-temporal overlap with the probable oil slick origin.

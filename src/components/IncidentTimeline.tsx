@@ -32,11 +32,11 @@ export const IncidentTimeline: React.FC<IncidentTimelineProps> = ({ events }) =>
                 TEMPORAL CHRONOLOGY
               </span>
               <span className="text-xs font-mono text-amber-400 bg-amber-900/20 border border-amber-500/20 px-2 py-0.5 rounded">
-                DEMO DATA
+                SAMPLE DATA
               </span>
             </div>
             <h1 className="text-2xl font-extrabold text-white mt-1 font-mono">
-              INCIDENT EVENT CHRONOLOGY TIMELINE
+              Incident event chronology
             </h1>
             <p className="text-sm text-slate-400 mt-0.5">
               Visualizing the sequential trajectory correlation between vessel passage, estimated slick release, satellite acquisition, and current drift position.
@@ -51,7 +51,7 @@ export const IncidentTimeline: React.FC<IncidentTimelineProps> = ({ events }) =>
           {/* Progress Connecting Line */}
           <div className="relative flex items-center justify-between my-8">
             <div className="absolute top-1/2 left-0 right-0 h-0.5 bg-[#1e2a42] -translate-y-1/2 z-0">
-              <div className="h-full bg-gradient-to-r from-amber-500 via-blue-500 to-red-500 w-full rounded-full" />
+              <div className="h-full bg-[#176B68] w-full rounded-full" />
             </div>
 
             {events.map((evt, idx) => (

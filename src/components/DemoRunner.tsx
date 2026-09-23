@@ -28,7 +28,7 @@ export const DemoRunner: React.FC<DemoRunnerProps> = ({
       <div className="fixed bottom-4 left-4 z-[500] flex items-center gap-2 px-3.5 py-2 rounded-full glass-panel border border-[#26334d] shadow-lg animate-fade-in font-mono text-xs">
         <span className="w-2 h-2 rounded-full bg-blue-400 animate-pulse" />
         <span className="font-semibold text-blue-300 text-[11px]">
-          ▶ DEMO RUNNING ({currentDemoStep}/{totalSteps})
+          ▶ SCENARIO RUNNING ({currentDemoStep}/{totalSteps})
         </span>
         <button
           onClick={() => setIsMinimized(false)}
@@ -54,7 +54,7 @@ export const DemoRunner: React.FC<DemoRunnerProps> = ({
       <div className="flex items-center justify-between border-b border-[#1e2a42] pb-1.5">
         <div className="flex items-center gap-2">
           <span className="w-2 h-2 rounded-full bg-blue-400 animate-pulse" />
-          <span className="font-bold text-[11px] text-blue-300">DEMO SCENARIO RUNNER</span>
+          <span className="font-bold text-[11px] text-blue-300">GUIDED SCENARIO</span>
         </div>
         <div className="flex items-center gap-1">
           <button

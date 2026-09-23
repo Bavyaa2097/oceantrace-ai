@@ -65,7 +65,7 @@ export const SpillDetection: React.FC<SpillDetectionProps> = ({
                 SAR AI WORKBENCH
               </span>
               <span className="text-xs font-mono text-amber-400 bg-amber-900/20 border border-amber-500/20 px-2 py-0.5 rounded">
-                DEMO MODE
+                SAMPLE WORKSPACE
               </span>
             </div>
             <h1 className="text-2xl font-extrabold text-white mt-1 font-mono">
@@ -81,7 +81,7 @@ export const SpillDetection: React.FC<SpillDetectionProps> = ({
             className="flex items-center justify-center gap-2 px-5 py-3 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-bold text-sm transition-all disabled:opacity-50 shadow-sm"
           >
             <Cpu className={`w-5 h-5 ${isProcessing ? 'animate-spin' : ''}`} />
-            <span>{isProcessing ? 'PROCESSING AI MODEL...' : 'RUN AI DETECTION'}</span>
+            <span>{isProcessing ? 'PROCESSING DETECTION...' : 'RUN DETECTION'}</span>
           </button>
         </div>
       </div>
@@ -124,7 +124,7 @@ export const SpillDetection: React.FC<SpillDetectionProps> = ({
                 disabled={isProcessing}
                 className="px-3 py-1.5 rounded bg-[#182238] hover:bg-[#1e2a44] text-slate-300 text-xs font-mono border border-[#26334d] transition-all"
               >
-                Reload Demo Image
+                Reload observation
               </button>
             </div>
           </div>
@@ -198,17 +198,8 @@ export const SpillDetection: React.FC<SpillDetectionProps> = ({
             </div>
 
             {/* Satellite Image Display Canvas */}
-            <div className="relative w-full h-[320px] rounded-xl overflow-hidden border border-[#26334d] bg-[#0b0f19] flex items-center justify-center">
-              <div className="absolute inset-0 bg-gradient-to-br from-[#0b0f19] via-[#0d1424] to-[#0b0f19]" />
-
-              {/* Simulated SAR Speckle Texture */}
-              <div
-                className="absolute inset-0 opacity-10 pointer-events-none"
-                style={{
-                  backgroundImage: `radial-gradient(#3b82f6 1px, transparent 1px)`,
-                  backgroundSize: '8px 8px',
-                }}
-              />
+            <div className="sar-preview relative w-full h-[320px] rounded-xl overflow-hidden border border-[#26334d] bg-[#20383A] flex items-center justify-center">
+              <div className="absolute inset-0 bg-[#20383A]" />
 
               {/* Highlighted Oil Slick Boundary Overlay */}
               {detectionComplete && (

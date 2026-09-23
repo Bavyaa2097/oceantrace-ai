@@ -1,5 +1,5 @@
 import React from 'react';
-import { Waves, ArrowRight, Play, Cpu, ShieldCheck, Radar, Anchor, Globe } from 'lucide-react';
+import { ArrowRight, Play, Radar, Ship, Waves } from 'lucide-react';
 
 interface LandingPageProps {
   onExplore: () => void;
@@ -10,122 +10,107 @@ interface LandingPageProps {
 export const LandingPage: React.FC<LandingPageProps> = ({
   onExplore,
   onRunDemo,
-  onLoginClick,
 }) => {
   return (
-    <div className="space-y-14 py-8 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-      {/* Hero Section */}
-      <section className="reveal relative ocean-gradient rounded-2xl p-8 sm:p-14 border border-[#0F4C5C] overflow-hidden shadow-[0_20px_45px_-25px_rgba(15,76,92,0.7)]">
-        <div className="relative z-10 max-w-3xl space-y-6">
-          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-[#E9B44C]/20 border border-[#E9B44C]/40 text-[#FFE3A1] text-xs font-mono font-semibold tracking-wider">
-            <Waves className="w-4 h-4" />
-            <span>Smart India Hackathon 2026 • SIH26143</span>
+    <div className="space-y-8 py-5 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+      <section className="reveal home-hero overflow-hidden rounded-2xl border border-[#DCE7F0] bg-[#E8F4FF] shadow-[0_4px_18px_rgba(18,48,74,0.08)]">
+        <div className="grid min-h-[390px] lg:grid-cols-[0.92fr_1.08fr]">
+          <div className="flex flex-col justify-center p-7 sm:p-10 lg:p-12">
+            <div className="mb-5 inline-flex w-fit items-center gap-2 rounded-full border border-[#C9E3F7] bg-white/80 px-3 py-1.5 text-xs font-semibold text-[#0B74DE]">
+              <Waves className="h-4 w-4" />
+              <span>Maritime intelligence platform</span>
+            </div>
+
+            <h1 className="max-w-xl text-4xl font-bold leading-[1.05] tracking-tight text-[#12304A] sm:text-5xl">
+              Smarter data.
+              <span className="block text-[#0B74DE]">Healthier oceans.</span>
+            </h1>
+
+            <p className="mt-5 max-w-lg text-sm leading-6 text-[#526B80] sm:text-base">
+              OceanTrace brings satellite observations, ocean drift analysis and vessel
+              histories together to help investigators understand what is happening at sea.
+            </p>
+
+            <div className="mt-7 flex flex-col gap-3 sm:flex-row">
+              <button
+                onClick={onExplore}
+                className="inline-flex items-center justify-center gap-2 rounded-lg bg-[#0B74DE] px-5 py-3 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-[#075BB5]"
+              >
+                Explore dashboard
+                <ArrowRight className="h-4 w-4" />
+              </button>
+              <button
+                onClick={onRunDemo}
+                className="inline-flex items-center justify-center gap-2 rounded-lg border border-[#B9D9F3] bg-white px-5 py-3 text-sm font-semibold text-[#0B74DE] transition-colors hover:bg-[#D8EDFF]"
+              >
+                <Play className="h-4 w-4 fill-current" />
+                View guided scenario
+              </button>
+            </div>
           </div>
 
-          <h1 className="text-3xl sm:text-5xl font-extrabold text-white tracking-tight leading-tight">
-            Ocean intelligence, <br />
-            <span className="text-[#79C8C1]">
-              built to trace the unseen.
-            </span>
-          </h1>
-
-          <p className="text-base sm:text-lg text-[#E6F0EE] leading-relaxed font-sans">
-            AI-assisted detection of marine oil slicks from Synthetic Aperture Radar (SAR) satellite imagery and spatio-temporal correlation with AIS vessel trajectory broadcasts to identify potential discharge candidates.
-          </p>
-
-          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 pt-4">
-            <button
-              onClick={onExplore}
-              className="px-7 py-3.5 rounded-lg bg-[#E76F51] hover:bg-[#D85B3D] text-white font-semibold text-sm tracking-wide shadow-sm transition-all flex items-center justify-center gap-2"
-            >
-              <span>Explore platform</span>
-              <ArrowRight className="w-4 h-4" />
-            </button>
-
-            <button
-              onClick={onRunDemo}
-              className="px-7 py-3.5 rounded-lg bg-white/10 hover:bg-white/15 text-white font-semibold text-sm border border-white/25 transition-all flex items-center justify-center gap-2"
-            >
-              <Play className="w-4 h-4 fill-current text-blue-400" />
-              <span>Run demo scenario</span>
-            </button>
+          <div className="hero-ocean-image relative min-h-[280px] overflow-hidden lg:min-h-full">
+            <div className="absolute inset-0 bg-gradient-to-r from-[#E8F4FF]/75 via-transparent to-transparent lg:w-1/3" />
+            <div className="hero-scanline absolute inset-0 opacity-30" />
+            <div className="hero-target absolute left-[54%] top-[52%] h-40 w-40 -translate-x-1/2 -translate-y-1/2 sm:h-52 sm:w-52">
+              <span className="absolute inset-0 rounded-full border border-white/70" />
+              <span className="absolute inset-[18%] rounded-full border border-white/60" />
+              <span className="absolute inset-[36%] rounded-full border border-white/55" />
+              <span className="absolute left-1/2 top-1/2 h-2.5 w-2.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-[#20B8E6] ring-4 ring-white/70" />
+              <span className="absolute left-1/2 top-0 h-full w-px -translate-x-1/2 bg-white/35" />
+              <span className="absolute left-0 top-1/2 h-px w-full -translate-y-1/2 bg-white/35" />
+            </div>
+            <div className="absolute bottom-4 left-4 flex items-center gap-2 rounded-md bg-[#12304A]/80 px-3 py-2 text-[11px] font-semibold text-white backdrop-blur-sm">
+              <Ship className="h-4 w-4 text-[#20B8E6]" />
+              <span>Vessel track under review</span>
+            </div>
+            <div className="absolute right-4 top-4 rounded-md bg-white/85 px-2.5 py-1.5 text-[10px] font-semibold text-[#526B80] shadow-sm backdrop-blur-sm">
+              North Arabian Sea · Observation view
+            </div>
           </div>
-        </div>
-
-        {/* Decorative Watermark */}
-        <div className="absolute right-6 bottom-6 opacity-5 pointer-events-none hidden lg:block">
-          <Radar className="w-80 h-80 text-blue-400" />
-        </div>
-      </section>
-
-      {/* 30-Second Value Proposition Grid */}
-      <section className="reveal-group grid grid-cols-1 md:grid-cols-3 gap-5">
-        <div className="reveal glass-panel p-6 rounded-xl border-l-4 border-l-[#C94C4C] space-y-3">
-          <div className="w-9 h-9 rounded-lg bg-[#E76F51]/15 border border-[#E76F51]/35 text-[#D85B3D] flex items-center justify-center font-bold text-sm">
-            01
-          </div>
-          <h3 className="font-bold text-sm text-[#123B4A]">The problem</h3>
-          <p className="text-xs text-[#60727A] leading-relaxed">
-            Offshore marine oil spills are frequently illegal, unannounced discharges occurring in deep waters, making detection slow and identifying the responsible vessel extremely challenging.
-          </p>
-        </div>
-
-        <div className="reveal glass-panel p-6 rounded-xl border-l-4 border-l-[#176B87] space-y-3">
-          <div className="w-9 h-9 rounded-lg bg-[#176B87]/12 border border-[#176B87]/25 text-[#176B87] flex items-center justify-center font-bold text-sm">
-            02
-          </div>
-          <h3 className="font-bold text-sm text-[#123B4A]">The solution</h3>
-          <p className="text-xs text-[#60727A] leading-relaxed">
-            Sentinel-1 SAR satellite neural networks automatically segment oil slicks, while reverse hydrodynamic models drift the slick backward in time to intersect with historical AIS vessel coordinates.
-          </p>
-        </div>
-
-        <div className="reveal glass-panel p-6 rounded-xl border-l-4 border-l-[#2A9D8F] space-y-3">
-          <div className="w-9 h-9 rounded-lg bg-[#2F8F83]/12 border border-[#2F8F83]/25 text-[#237E73] flex items-center justify-center font-bold text-sm">
-            03
-          </div>
-          <h3 className="font-bold text-sm text-[#123B4A]">The result</h3>
-          <p className="text-xs text-[#60727A] leading-relaxed">
-            Generates ranked multi-factor correlation scores for candidate vessels and compiles official enforcement dossiers for Coast Guard and maritime authorities.
-          </p>
         </div>
       </section>
 
-      {/* Core Platform Capabilities */}
-      <section className="reveal space-y-6">
-        <div className="text-center space-y-2">
-          <span className="text-xs font-mono font-semibold text-[#0F667A] uppercase tracking-widest">
-            SURVEILLANCE ARCHITECTURE
+      <section className="reveal-group grid grid-cols-1 gap-3 md:grid-cols-3">
+        <div className="reveal rounded-xl border border-[#DCE7F0] bg-white p-5 shadow-[0_2px_8px_rgba(18,48,74,0.05)]">
+          <div className="mb-3 flex items-center gap-3">
+            <span className="text-lg font-bold text-[#0B74DE]">01</span>
+            <h2 className="font-semibold text-[#12304A]">Spill detection</h2>
+          </div>
+          <p className="text-sm leading-5 text-[#526B80]">
+            Identify unusual slick patterns in satellite observations across remote waters.
+          </p>
+        </div>
+        <div className="reveal rounded-xl border border-[#DCE7F0] bg-white p-5 shadow-[0_2px_8px_rgba(18,48,74,0.05)]">
+          <div className="mb-3 flex items-center gap-3">
+            <span className="text-lg font-bold text-[#20B8E6]">02</span>
+            <h2 className="font-semibold text-[#12304A]">Drift analysis</h2>
+          </div>
+          <p className="text-sm leading-5 text-[#526B80]">
+            Estimate a probable source area by working back through wind and current conditions.
+          </p>
+        </div>
+        <div className="reveal rounded-xl border border-[#DCE7F0] bg-white p-5 shadow-[0_2px_8px_rgba(18,48,74,0.05)]">
+          <div className="mb-3 flex items-center gap-3">
+            <span className="text-lg font-bold text-[#20A66A]">03</span>
+            <h2 className="font-semibold text-[#12304A]">Vessel correlation</h2>
+          </div>
+          <p className="text-sm leading-5 text-[#526B80]">
+            Compare vessel tracks with the estimated location and time window for investigator review.
+          </p>
+        </div>
+      </section>
+
+      <section className="reveal flex flex-col justify-between gap-4 border-b border-[#DCE7F0] pb-7 pt-2 sm:flex-row sm:items-end">
+        <div>
+          <span className="text-xs font-semibold uppercase tracking-[0.14em] text-[#0B74DE]">
+            Investigation workflow
           </span>
-          <h2 className="text-2xl font-bold text-[#123B4A]">
-            End-to-end maritime intelligence workflow
-          </h2>
+          <h2 className="mt-2 text-2xl font-bold text-[#12304A]">From observation to evidence</h2>
         </div>
-
-        <div className="reveal-group grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
-          <div className="reveal glass-panel p-5 rounded-xl border-t-4 border-t-[#176B87] space-y-2 hover:border-[#176B87] transition-all">
-            <Cpu className="w-6 h-6 text-[#176B87]" />
-            <h4 className="font-semibold text-sm text-[#123B4A]">SAR image segmentation</h4>
-            <p className="text-xs text-[#647780]">ResNet50-UNet neural network trained on C-band VV/VH radar imagery.</p>
-          </div>
-
-          <div className="reveal glass-panel p-5 rounded-xl border-t-4 border-t-[#2F8F83] space-y-2 hover:border-[#2F8F83] transition-all">
-            <Globe className="w-6 h-6 text-[#2F8F83]" />
-            <h4 className="font-semibold text-sm text-[#123B4A]">Hydrodynamic backtracking</h4>
-            <p className="text-xs text-[#647780]">Reverse particle drift transport under atmospheric wind & ocean currents.</p>
-          </div>
-
-          <div className="reveal glass-panel p-5 rounded-xl border-t-4 border-t-[#E9B44C] space-y-2 hover:border-[#E9B44C] transition-all">
-            <Anchor className="w-6 h-6 text-[#C28A1F]" />
-            <h4 className="font-semibold text-sm text-[#123B4A]">AIS trajectory match</h4>
-            <p className="text-xs text-[#647780]">Multi-factor spatial, temporal, trajectory, and directional alignment scoring.</p>
-          </div>
-
-          <div className="reveal glass-panel p-5 rounded-xl border-t-4 border-t-[#E76F51] space-y-2 hover:border-[#E76F51] transition-all">
-            <ShieldCheck className="w-6 h-6 text-[#D85B3D]" />
-            <h4 className="font-semibold text-sm text-[#123B4A]">Investigation report</h4>
-            <p className="text-xs text-[#647780]">Compliant evidence compilation for Coast Guard and enforcement agencies.</p>
-          </div>
+        <div className="inline-flex items-center gap-2 text-xs text-[#667C8E]">
+          <Radar className="h-4 w-4 text-[#20B8E6]" />
+          Satellite, drift and AIS context in one workspace
         </div>
       </section>
     </div>

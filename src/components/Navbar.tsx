@@ -32,15 +32,15 @@ export const Navbar: React.FC<NavbarProps> = ({
   const [showMobileMenu, setShowMobileMenu] = useState<boolean>(false);
 
   const navTabs = [
-    { id: 'landing', label: 'Home' },
-    { id: 'dashboard', label: 'Dashboard' },
-    { id: 'spill-analysis', label: 'Spill Analysis' },
-    { id: 'drift-analysis', label: 'Drift & Origin' },
-    { id: 'vessel-intelligence', label: 'Vessels' },
-    { id: 'timeline', label: 'Timeline' },
-    { id: 'trajectory', label: 'Trajectory' },
-    { id: 'reports', label: 'Reports' },
-    { id: 'ai-pipeline', label: 'AI Pipeline' },
+    { id: 'landing', label: 'Home', accent: 'tab-home' },
+    { id: 'dashboard', label: 'Dashboard', accent: 'tab-dashboard' },
+    { id: 'spill-analysis', label: 'Spill Analysis', accent: 'tab-spill' },
+    { id: 'drift-analysis', label: 'Drift & Origin', accent: 'tab-drift' },
+    { id: 'vessel-intelligence', label: 'Vessels', accent: 'tab-vessels' },
+    { id: 'timeline', label: 'Timeline', accent: 'tab-timeline' },
+    { id: 'trajectory', label: 'Trajectory', accent: 'tab-trajectory' },
+    { id: 'reports', label: 'Reports', accent: 'tab-reports' },
+    { id: 'ai-pipeline', label: 'AI Pipeline', accent: 'tab-pipeline' },
   ];
 
   return (
@@ -52,7 +52,7 @@ export const Navbar: React.FC<NavbarProps> = ({
             onClick={() => setActiveTab('landing')}
             className="flex items-center gap-2.5 cursor-pointer group shrink-0 pr-2"
           >
-            <div className="flex items-center justify-center w-9 h-9 rounded-lg bg-blue-600/20 border border-blue-500/30 text-blue-400 group-hover:bg-blue-600/30 transition-all">
+            <div className="flex items-center justify-center w-9 h-9 rounded-lg bg-[#e6efed] border border-[#b9d5d0] text-[#176b87] group-hover:bg-[#d8e9e5] transition-all">
               <Waves className="w-5 h-5" />
             </div>
             <div>
@@ -60,12 +60,9 @@ export const Navbar: React.FC<NavbarProps> = ({
                 <span className="text-lg sm:text-xl font-bold tracking-tight text-[#123B4A]">
                   OceanTrace <span className="text-[#176B87]">AI</span>
                 </span>
-                <span className="hidden xl:inline-block px-1.5 py-0.5 text-[9px] font-mono font-bold bg-[#1a2540] text-slate-400 border border-[#26334d] rounded">
-                  SIH26143
-                </span>
               </div>
               <p className="text-[10px] text-[#647780] hidden xl:block leading-none">
-                AI Spill Detection & Vessel Correlation
+                Maritime environmental monitoring
               </p>
             </div>
           </div>
@@ -76,10 +73,10 @@ export const Navbar: React.FC<NavbarProps> = ({
               <button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id)}
-                className={`px-3 py-1.5 text-[11px] font-medium rounded-md whitespace-nowrap transition-all ${
+                className={`nav-tab ${tab.accent} px-3 py-1.5 text-[11px] font-medium rounded-md whitespace-nowrap transition-all ${
                   activeTab === tab.id
-                    ? 'bg-[#E8F2F4] text-[#176B87] border border-[#BFD8DF] font-semibold'
-                    : 'text-[#647780] hover:text-[#123B4A] hover:bg-[#F4F7F8]'
+                    ? 'is-active font-semibold'
+                    : ''
                 }`}
               >
                 {tab.label}
@@ -105,30 +102,30 @@ export const Navbar: React.FC<NavbarProps> = ({
             >
               {showMobileMenu ? <X className="w-4 h-4" /> : <Menu className="w-4 h-4" />}
             </button>
-            {/* Demo Run Button */}
+            {/* Scenario playback */}
             <button
               onClick={onRunDemoScenario}
               disabled={isDemoRunning}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-mono font-bold transition-all whitespace-nowrap ${
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-semibold transition-all whitespace-nowrap ${
                 isDemoRunning
-                  ? 'bg-[#FFF7E6] text-[#A66F11] border border-[#E8C978] cursor-wait'
+                  ? 'bg-[#fff7e6] text-[#a66f11] border border-[#e8c978] cursor-wait'
                   : 'bg-[#176B87] hover:bg-[#123B4A] text-white shadow-sm'
               }`}
             >
               <Play className={`w-3.5 h-3.5 ${isDemoRunning ? '' : 'fill-current'}`} />
-              <span>{isDemoRunning ? 'RUNNING...' : 'RUN DEMO'}</span>
+              <span>{isDemoRunning ? 'Running' : 'Play scenario'}</span>
             </button>
 
             {/* Mode Toggle */}
             <button
               onClick={() => setIsDemoMode(!isDemoMode)}
               className="hidden xl:flex items-center gap-1 px-2 py-1 rounded-md text-[10px] border border-[#D9E3E7] bg-[#F4F7F8] text-[#647780] hover:border-[#A9C3CA] hover:text-[#123B4A] transition-all"
-              title="Toggle Demo Mode or Live Data Mode"
+              title="Toggle sample data or live data mode"
             >
               {isDemoMode ? (
                 <>
                   <ToggleRight className="w-3.5 h-3.5 text-blue-400" />
-                  <span className="text-blue-400">DEMO</span>
+                  <span className="text-blue-400">SAMPLE</span>
                 </>
               ) : (
                 <>
@@ -149,10 +146,10 @@ export const Navbar: React.FC<NavbarProps> = ({
                     {currentUser.name.charAt(0)}
                   </div>
                   <div className="text-left hidden sm:block leading-tight">
-                    <span className="font-bold block text-white text-[11px] max-w-[90px] truncate">
+                    <span className="font-bold block text-[#173b43] text-[11px] max-w-[90px] truncate">
                       {currentUser.name}
                     </span>
-                    <span className="text-[9px] text-blue-400 block font-mono">
+                    <span className="text-[9px] text-[#176b87] block">
                       {currentUser.role}
                     </span>
                   </div>
@@ -163,10 +160,10 @@ export const Navbar: React.FC<NavbarProps> = ({
                 {showProfileMenu && (
                   <div className="absolute right-0 mt-2 w-60 glass-panel rounded-xl border border-[#26334d] p-3 shadow-xl space-y-3 z-[600]">
                     <div className="border-b border-[#1e2a42] pb-2 space-y-1">
-                      <div className="font-bold text-white text-xs font-mono">{currentUser.name}</div>
+                      <div className="font-bold text-[#173b43] text-xs">{currentUser.name}</div>
                       <div className="text-[11px] text-slate-400 truncate">{currentUser.email}</div>
-                      <div className="inline-block px-2 py-0.5 rounded bg-blue-600/15 border border-blue-500/30 text-blue-300 font-mono text-[10px] font-bold">
-                        {currentUser.role.toUpperCase()}
+                      <div className="inline-block px-2 py-0.5 rounded bg-[#e8f2f4] border border-[#bfd8df] text-[#176b87] text-[10px] font-semibold">
+                        {currentUser.role}
                       </div>
                       <div className="text-[10px] text-slate-400 truncate">{currentUser.organization}</div>
                     </div>
@@ -176,9 +173,9 @@ export const Navbar: React.FC<NavbarProps> = ({
                         setShowProfileMenu(false);
                         onLogout();
                       }}
-                      className="w-full px-3 py-2 rounded-lg bg-red-900/30 hover:bg-red-900/50 border border-red-500/20 text-red-400 text-xs font-bold font-mono transition-all flex items-center justify-between"
+                      className="w-full px-3 py-2 rounded-lg bg-[#fff1ed] hover:bg-[#ffe3db] border border-[#f0c0b3] text-[#c45d42] text-xs font-semibold transition-all flex items-center justify-between"
                     >
-                      <span>SIGN OUT / LOGOUT</span>
+                      <span>Sign out</span>
                       <LogOut className="w-4 h-4" />
                     </button>
                   </div>
@@ -190,7 +187,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                 className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-[#E8F2F4] hover:bg-[#D9E3E7] text-[#176B87] border border-[#BFD8DF] text-[11px] font-bold transition-all whitespace-nowrap"
               >
                 <LogIn className="w-3.5 h-3.5" />
-                <span>SIGN IN</span>
+                <span>Sign in</span>
               </button>
             )}
           </div>
@@ -205,10 +202,10 @@ export const Navbar: React.FC<NavbarProps> = ({
                 setActiveTab(tab.id);
                 setShowMobileMenu(false);
               }}
-              className={`whitespace-nowrap px-2.5 py-1 text-[11px] font-medium rounded-md transition-all ${
+              className={`nav-tab ${tab.accent} whitespace-nowrap px-2.5 py-1 text-[11px] font-medium rounded-md transition-all ${
                 activeTab === tab.id
-                  ? 'bg-blue-600/15 text-blue-400 border border-blue-500/30'
-                  : 'text-slate-400 bg-[#131b2e]'
+                  ? 'is-active'
+                  : ''
               }`}
             >
               {tab.label}
@@ -224,7 +221,7 @@ export const Navbar: React.FC<NavbarProps> = ({
               className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-[#176B87] text-white text-[11px] font-bold"
             >
               <Play className="w-3.5 h-3.5 fill-current" />
-              {isDemoRunning ? 'RUNNING...' : 'RUN DEMO'}
+              {isDemoRunning ? 'RUNNING...' : 'PLAY SCENARIO'}
             </button>
             <button
               onClick={() => {

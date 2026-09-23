@@ -80,13 +80,13 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
           <div className="space-y-4">
             {/* System Status Badges */}
             <div className="flex flex-wrap items-center gap-2">
-              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#ECF8F6] border border-[#B9DFD9] text-[#237E73] text-xs font-semibold">
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#ecf8f6] border border-[#b9dfd9] text-[#237e73] text-xs font-semibold">
                 <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
                 Monitoring System • Operational
               </span>
 
               <span className="px-3 py-1 rounded-full bg-[#E8F2F4] border border-[#BFD8DF] text-[#176B87] text-xs font-semibold">
-                SIH 2026 • Prototype
+                Operational preview
               </span>
             </div>
 
@@ -111,7 +111,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
             </div>
 
             <p className="text-sm text-[#647780] leading-relaxed font-sans">
-              An AI-assisted platform for detecting probable marine oil spills from Synthetic Aperture Radar (SAR) imagery, analysing spill movement via hydrodynamic backtracking, and correlating maritime vessel trajectories for investigation.
+              A maritime investigation platform for detecting probable marine oil spills from Synthetic Aperture Radar (SAR) imagery, analysing spill movement via hydrodynamic backtracking, and correlating vessel trajectories for review.
             </p>
           </div>
 
@@ -127,28 +127,28 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
             </div>
           </div>
 
-          {/* Security & Prototype Notices */}
+          {/* Security notice */}
           <div className="p-4 rounded-xl bg-[#E8F2F4] border border-[#BFD8DF] text-xs text-[#647780] space-y-2">
             <div className="flex items-start gap-2 text-[#123B4A]">
               <Shield className="w-4 h-4 text-cyan-400 shrink-0 mt-0.5" />
               <p>
-                <strong>Security notice:</strong> This prototype is intended for authorized users. Access to satellite imagery, vessel information, investigation records and system data may be restricted based on user role.
+                <strong>Security notice:</strong> This preview is intended for authorized users. Access to satellite imagery, vessel information, investigation records and system data may vary by role.
               </p>
             </div>
-            <div className="text-[11px] text-slate-500 pt-1 border-t border-slate-900">
-              Prototype developed for SIH 2026 (SIH26143). Not an actual government system.
+            <div className="text-[11px] text-slate-500 pt-1 border-t border-[#b9d5d0]">
+              Preview environment with sample data. Not an operational government system.
             </div>
           </div>
         </div>
 
         {/* Right Side: Secure Access Portal Card */}
         <div className="lg:col-span-6">
-          <div className="glass-panel p-6 sm:p-8 rounded-2xl border border-[#BFD8DF] shadow-lg space-y-6 relative overflow-hidden">
+          <div className="glass-panel p-6 sm:p-8 rounded-xl border border-[#BFD8DF] shadow-sm space-y-6 relative overflow-hidden">
             
             {/* Card Header */}
             <div className="border-b border-[#D9E3E7] pb-4 flex items-center justify-between">
               <div>
-                <span className="text-[10px] font-mono font-bold text-cyan-400 uppercase tracking-widest">
+                <span className="text-[10px] font-semibold text-[#176b87] tracking-wide">
                   Authorization portal
                 </span>
                 <h3 className="text-xl font-extrabold text-[#123B4A] mt-0.5">
@@ -161,7 +161,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
             </div>
 
             {errorMsg && (
-              <div className="p-3 rounded-lg bg-red-950/80 border border-red-500/40 text-xs text-red-300 font-mono flex items-center gap-2">
+              <div className="p-3 rounded-lg bg-[#fff1ed] border border-[#f0c0b3] text-xs text-[#c45d42] flex items-center gap-2">
                 <AlertTriangle className="w-4 h-4 shrink-0" />
                 <span>{errorMsg}</span>
               </div>
@@ -249,17 +249,17 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
               <button
                 type="submit"
                 disabled={isLoading}
-                className="w-full py-3 rounded-lg bg-gradient-to-r from-[#0F667A] to-[#2F8F83] hover:from-[#0F4C5C] hover:to-[#237E73] text-white font-extrabold text-xs shadow-lg transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+                className="w-full py-3 rounded-lg bg-[#176B87] hover:bg-[#123B4A] text-white font-semibold text-xs shadow-sm transition-all flex items-center justify-center gap-2 disabled:opacity-50"
               >
                 {isLoading ? (
                   <>
                     <RefreshCw className="w-4 h-4 animate-spin" />
-                    <span>AUTHENTICATING SECURE PORTAL...</span>
+                    <span>Signing you in…</span>
                   </>
                 ) : (
                   <>
                     <KeyRound className="w-4 h-4" />
-                    <span>SIGN IN TO SYSTEM</span>
+                    <span>Sign in</span>
                   </>
                 )}
               </button>
@@ -275,24 +275,24 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
               </button>
             </form>
 
-            {/* SIH JUDGE DEMO ACCESS SECTION */}
-            <div className="pt-4 border-t border-slate-800 space-y-2.5">
+            {/* Quick access profiles */}
+            <div className="pt-4 border-t border-[#d9e3e7] space-y-2.5">
               <div className="flex items-center justify-between">
-                <span className="text-[10px] font-mono font-bold text-amber-400 uppercase tracking-widest">
-                  SIH JUDGE QUICK DEMO ACCESS
+                <span className="text-[10px] font-semibold text-[#a66f11] tracking-wide">
+                  Sample access profiles
                 </span>
-                <span className="text-[9px] font-mono px-1.5 py-0.2 rounded bg-amber-950 text-amber-300 border border-amber-500/30">
+                <span className="text-[9px] px-1.5 py-0.2 rounded bg-[#fff7e6] text-[#a66f11] border border-[#e8c978]">
                   1-CLICK LOGIN
                 </span>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs font-mono">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs">
                 <button
                   type="button"
                   onClick={() => handleDemoLogin('Investigator')}
                   className="p-2.5 rounded-lg bg-[#EAF5F4] hover:bg-[#D8ECE8] border border-[#B7D7DB] text-[#0F667A] font-bold text-[11px] transition-all text-center"
                 >
-                  Investigator Demo
+                  Sample investigator
                 </button>
 
                 <button
@@ -300,7 +300,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
                   onClick={() => handleDemoLogin('Administrator')}
                   className="p-2.5 rounded-lg bg-[#FFF1ED] hover:bg-[#FFE3DB] border border-[#F0C0B3] text-[#C45D42] font-bold text-[11px] transition-all text-center"
                 >
-                  Admin Demo
+                  Sample administrator
                 </button>
 
                 <button
@@ -308,7 +308,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
                   onClick={() => handleDemoLogin('Viewer / Authority')}
                   className="p-2.5 rounded-lg bg-[#F6F3ED] hover:bg-[#E2ECE9] border border-[#D9E3E7] text-[#60727A] font-bold text-[11px] transition-all text-center"
                 >
-                  Viewer Demo
+                  Read-only viewer
                 </button>
               </div>
             </div>

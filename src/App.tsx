@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
 import { Navbar } from './components/Navbar';
-import { JudgeBanner } from './components/JudgeBanner';
 import { MetricCards } from './components/MetricCards';
 import { MainMap } from './components/MainMap';
 import { SpillAnalysisPanel } from './components/SpillAnalysisPanel';
@@ -84,15 +83,15 @@ export const App: React.FC = () => {
   const [currentDemoStep, setCurrentDemoStep] = useState<number>(1);
 
   const demoSteps = [
-    { step: 1, tab: 'spill-analysis', name: '1. Ingesting Sentinel-1 SAR Satellite Image' },
-    { step: 2, tab: 'spill-analysis', name: '2. Segmenting Oil Slick & Extracting Boundary' },
-    { step: 3, tab: 'spill-analysis', name: '3. Calculating Detection Confidence (94.7%)' },
-    { step: 4, tab: 'drift-analysis', name: '4. Computing Hydrodynamic Backward Drift Path' },
-    { step: 5, tab: 'drift-analysis', name: '5. Identifying Probable Origin Zone (10.761° N, 72.218° E)' },
-    { step: 6, tab: 'vessel-intelligence', name: '6. Ingesting & Cross-matching 1,284 AIS Vessel Tracks' },
-    { step: 7, tab: 'vessel-intelligence', name: '7. Highlighting Top Candidate Vessel (MV Ocean Star)' },
-    { step: 8, tab: 'dashboard', name: '8. Displaying Spatio-Temporal Correlation Analysis (90.3%)', openModal: true },
-    { step: 9, tab: 'reports', name: '9. Compiling Final Incident Investigation Dossier' },
+    { step: 1, tab: 'spill-analysis', name: '1. Load the Sentinel-1 SAR scene' },
+    { step: 2, tab: 'spill-analysis', name: '2. Segment the slick and trace its boundary' },
+    { step: 3, tab: 'spill-analysis', name: '3. Review detection confidence (94.7%)' },
+    { step: 4, tab: 'drift-analysis', name: '4. Reconstruct the backward drift path' },
+    { step: 5, tab: 'drift-analysis', name: '5. Locate the probable origin zone' },
+    { step: 6, tab: 'vessel-intelligence', name: '6. Cross-match 1,284 AIS vessel tracks' },
+    { step: 7, tab: 'vessel-intelligence', name: '7. Review the leading candidate vessel' },
+    { step: 8, tab: 'dashboard', name: '8. Open the spatio-temporal correlation view', openModal: true },
+    { step: 9, tab: 'reports', name: '9. Compile the incident investigation report' },
   ];
 
   const handleRunDemoScenario = () => {
@@ -171,9 +170,6 @@ export const App: React.FC = () => {
         onToggleTheme={() => setIsNightMode((current) => !current)}
       />
 
-      {/* SIH Judge 30-Second Value Proposition Banner */}
-      <JudgeBanner />
-
       {/* Role Notice Indicator Banner */}
       {currentUser && (
         <div className="bg-white border-b border-[#D9E3E7] py-2 px-4 text-xs flex items-center justify-between text-[#647780]">
@@ -182,14 +178,14 @@ export const App: React.FC = () => {
             <span>{currentUser.name}</span>
             <span>•</span>
             <span className="px-2 py-0.5 rounded bg-[#E8F2F4] text-[#176B87] border border-[#BFD8DF] font-semibold text-[10px]">
-              ROLE: {currentUser.role.toUpperCase()}
+              {currentUser.role}
             </span>
             <span>•</span>
             <span className="text-slate-500 truncate hidden sm:inline">{currentUser.organization}</span>
 
             {currentUser.role === 'Viewer / Authority' && (
-              <span className="ml-auto text-amber-400 font-semibold bg-amber-900/20 border border-amber-500/20 px-2 py-0.5 rounded text-[10px]">
-                [READ-ONLY ACCESS MODE]
+              <span className="ml-auto text-[#a66f11] font-semibold bg-[#fff7e6] border border-[#e8c978] px-2 py-0.5 rounded text-[10px]">
+              Read-only access
               </span>
             )}
 
@@ -199,7 +195,7 @@ export const App: React.FC = () => {
                 className="ml-auto text-[#176B87] hover:text-[#123B4A] font-semibold bg-[#F4F7F8] border border-[#D9E3E7] hover:border-[#176B87] px-2 py-1 rounded text-[10px] flex items-center gap-1 transition-all"
               >
                 <Activity className="w-3 h-3 text-blue-400" />
-                <span>SYSTEM AUDIT LOGS</span>
+                <span>System audit logs</span>
               </button>
             )}
           </div>
@@ -207,7 +203,7 @@ export const App: React.FC = () => {
       )}
 
       {/* Main Content Area */}
-      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
+      <main className={`flex-1 w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 ${activeTab === 'landing' ? 'home-main' : 'max-w-7xl'}`}>
         
         {/* LOGIN PAGE TAB */}
         {activeTab === 'login' && (
@@ -226,6 +222,20 @@ export const App: React.FC = () => {
         {/* DASHBOARD TAB */}
         {activeTab === 'dashboard' && (
           <div className="space-y-6">
+            <div className="reveal flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3 border-b border-[#d9e3e7] pb-5">
+              <div>
+                <p className="text-xs font-semibold text-[#176b87] tracking-wide">Operations overview</p>
+                <h1 className="text-2xl sm:text-3xl font-bold text-[#173b43] mt-1">Maritime watch desk</h1>
+                <p className="text-sm text-[#60727a] mt-1">Review active alerts, vessel movements, and the latest satellite observations.</p>
+              </div>
+              <div className="text-xs text-[#60727a] sm:text-right">
+                <span className="inline-flex items-center gap-1.5 text-[#237e73] font-semibold">
+                  <span className="w-2 h-2 rounded-full bg-[#2f8f83]" />
+                  Sample feeds operational
+                </span>
+                <span className="block mt-1">Last refreshed 14 Sep 2026 · 12:10 UTC</span>
+              </div>
+            </div>
             {/* KPI Metrics Header */}
             <MetricCards />
 
@@ -366,7 +376,7 @@ export const App: React.FC = () => {
         />
       )}
 
-      {/* Demo Scenario Automated Overlay Controller */}
+      {/* Guided scenario controller */}
       <DemoRunner
         currentDemoStep={currentDemoStep}
         totalSteps={demoSteps.length}
@@ -377,13 +387,13 @@ export const App: React.FC = () => {
       />
 
       {/* Footer */}
-      <footer className="border-t border-[#1e2a42] bg-[#0d1424] py-4 px-4 text-center text-xs text-slate-500 font-mono">
+      <footer className="border-t border-[#d9e3e7] bg-[#eef4f2] py-4 px-4 text-center text-xs text-[#60727a]">
         <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-2">
           <div>
-            🌊 <strong>OCEANTRACE AI</strong> • Smart India Hackathon 2026 (SIH26143)
+            🌊 <strong>OceanTrace</strong> · Maritime environmental intelligence
           </div>
           <div className="text-[11px] text-slate-600">
-            Satellite Imagery & AIS Data Correlation for Marine Environmental Surveillance
+            Satellite imagery and AIS correlation for marine environmental surveillance
           </div>
         </div>
       </footer>

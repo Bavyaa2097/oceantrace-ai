@@ -64,11 +64,11 @@ export const MetricCards: React.FC = () => {
                   <span className="text-[11px] font-semibold tracking-wide text-[#647780]">
                     {metric.label}
                   </span>
-                  <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-[#0f1624] border border-[#26334d] text-slate-500">
-                    Demo
+                  <span className="text-[9px] px-1.5 py-0.5 rounded bg-[#f4f7f6] border border-[#d9e3e7] text-[#60727a]">
+                    Sample data
                   </span>
                 </div>
-                <div className={`text-2xl sm:text-3xl font-extrabold font-mono mt-1.5 ${metric.color}`}>
+                <div className={`text-2xl sm:text-3xl font-extrabold mt-1.5 ${metric.color}`}>
                   {metric.value}
                 </div>
               </div>
@@ -77,9 +77,9 @@ export const MetricCards: React.FC = () => {
               </div>
             </div>
 
-            <div className="mt-3 pt-2.5 border-t border-[#1e2a42] flex items-center justify-between text-[11px]">
+            <div className="mt-3 pt-2.5 border-t border-[#d9e3e7] flex items-center justify-between text-[11px]">
               <span className="text-[#647780] truncate">{metric.subtext}</span>
-              <span className={`font-mono font-semibold text-[10px] px-1.5 py-0.5 rounded bg-[#0f1624] ${metric.color}`}>
+              <span className={`font-semibold text-[10px] px-1.5 py-0.5 rounded bg-[#f4f7f6] ${metric.color}`}>
                 {metric.badge}
               </span>
             </div>
