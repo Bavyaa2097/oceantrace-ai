@@ -539,7 +539,7 @@ export const SpillDetection: React.FC<SpillDetectionProps> = ({
             {imageUrl && (
               <div className="flex flex-col justify-between gap-3 rounded-lg border border-[var(--ot-border)] bg-[var(--ot-shell)] p-3 sm:flex-row sm:items-center">
                 <p className="text-xs leading-5 text-[var(--ot-text-secondary)]">
-                  SAR observation loaded from the selected catalogue item ID, constrained to a one-minute window around its verified acquisition time. Oil-slick classification is a separate processing stage.
+                  Observation constrained to the selected catalogue acquisition time and available Sentinel-1 metadata.
                 </p>
                 <button
                   type="button"

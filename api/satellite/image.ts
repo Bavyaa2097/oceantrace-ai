@@ -29,7 +29,7 @@ const CATALOG_URL = 'https://sh.dataspace.copernicus.eu/catalog/v1/search';
 const PROCESS_URL = 'https://sh.dataspace.copernicus.eu/process/v1';
 const AUTH_TIMEOUT_MS = 10_000;
 const PROCESS_TIMEOUT_MS = 30_000;
-const ACQUISITION_TIME_WINDOW_MS = 60_000;
+const ACQUISITION_TIME_WINDOW_MS = 30_000;
 const EVALSCRIPT = `//VERSION=3
 function setup() {
   return {
@@ -120,6 +120,42 @@ function bboxesIntersect(
     first[2] >= second[0] &&
     first[1] <= second[3] &&
     first[3] >= second[1];
+}
+
+function intersectBboxes(
+  first: [number, number, number, number],
+  second: [number, number, number, number]
+): [number, number, number, number] | null {
+  const intersection: [number, number, number, number] = [
+    Math.max(first[0], second[0]),
+    Math.max(first[1], second[1]),
+    Math.min(first[2], second[2]),
+    Math.min(first[3], second[3]),
+  ];
+
+  return intersection[0] < intersection[2] && intersection[1] < intersection[3]
+    ? intersection
+    : null;
+}
+
+function catalogueStringProperty(
+  properties: Record<string, unknown>,
+  keys: string[]
+): string | undefined {
+  for (const key of keys) {
+    const value = properties[key];
+    if (typeof value === 'string' && value.trim() !== '') return value;
+  }
+  return undefined;
+}
+
+function supportedEnum(
+  value: string | undefined,
+  allowedValues: readonly string[]
+): string | undefined {
+  if (!value) return undefined;
+  const normalized = value.toUpperCase();
+  return allowedValues.includes(normalized) ? normalized : undefined;
 }
 
 export default async function handler(req: ImageRequest, res: ResponseWriter): Promise<void> {
@@ -218,6 +254,8 @@ export default async function handler(req: ImageRequest, res: ResponseWriter): P
   }
 
   let selectedDatetime: string;
+  let selectedBbox: [number, number, number, number] | undefined;
+  let selectedProperties: Record<string, unknown>;
   try {
     const catalogueResponse = await fetchWithTimeout(
       CATALOG_URL,
@@ -266,9 +304,15 @@ export default async function handler(req: ImageRequest, res: ResponseWriter): P
         sendError(res, 404, 'Selected acquisition does not intersect the requested area');
         return;
       }
+      selectedBbox = intersectBboxes(feature.bbox, bbox);
+      if (!selectedBbox) {
+        sendError(res, 404, 'Selected acquisition does not overlap the requested area');
+        return;
+      }
     }
 
     selectedDatetime = new Date(selectedTimestamp).toISOString();
+    selectedProperties = feature.properties;
   } catch {
     sendError(res, 502, 'Copernicus catalogue verification failed');
     return;
@@ -276,12 +320,30 @@ export default async function handler(req: ImageRequest, res: ResponseWriter): P
 
   try {
     const selectedTime = Date.parse(selectedDatetime);
-    const dataFilter = {
+    const dataFilter: Record<string, unknown> = {
       timeRange: {
         from: new Date(selectedTime - ACQUISITION_TIME_WINDOW_MS).toISOString(),
         to: new Date(selectedTime + ACQUISITION_TIME_WINDOW_MS).toISOString(),
       },
+      mosaickingOrder: 'mostRecent',
     };
+    const orbitDirection = supportedEnum(
+      catalogueStringProperty(selectedProperties, ['sat:orbit_state', 'orbitDirection']),
+      ['ASCENDING', 'DESCENDING']
+    );
+    if (orbitDirection) dataFilter.orbitDirection = orbitDirection;
+
+    const acquisitionMode = supportedEnum(
+      catalogueStringProperty(selectedProperties, ['sar:instrument_mode', 's1:instrument_mode', 'instrumentMode']),
+      ['SM', 'IW', 'EW', 'WV']
+    );
+    if (acquisitionMode) dataFilter.acquisitionMode = acquisitionMode;
+
+    const polarization = supportedEnum(
+      catalogueStringProperty(selectedProperties, ['s1:polarization', 'sar:polarization', 'polarization']),
+      ['DV', 'DH', 'SV', 'SH', 'HH', 'HV', 'VV', 'VH']
+    );
+    if (polarization) dataFilter.polarization = polarization;
 
     const processResponse = await fetchWithTimeout(
       PROCESS_URL,
@@ -294,11 +356,10 @@ export default async function handler(req: ImageRequest, res: ResponseWriter): P
         },
         body: JSON.stringify({
           input: {
-            bounds: { bbox },
+            bounds: { bbox: selectedBbox ?? bbox },
             data: [
               {
                 type: 'sentinel-1-grd',
-                id: acquisitionId,
                 dataFilter,
               },
             ],
@@ -322,7 +383,7 @@ export default async function handler(req: ImageRequest, res: ResponseWriter): P
     if (!processResponse.ok) {
       console.error('Copernicus Processing API request failed', {
         status: processResponse.status,
-        message: 'Upstream returned a non-success status',
+        acquisitionIdPrefix: acquisitionId.slice(0, 16),
       });
       sendError(res, 502, 'Copernicus Processing API request failed', {
         status: processResponse.status,
