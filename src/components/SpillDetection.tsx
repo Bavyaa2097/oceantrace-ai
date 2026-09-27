@@ -539,7 +539,7 @@ export const SpillDetection: React.FC<SpillDetectionProps> = ({
             {imageUrl && (
               <div className="flex flex-col justify-between gap-3 rounded-lg border border-[var(--ot-border)] bg-[var(--ot-shell)] p-3 sm:flex-row sm:items-center">
                 <p className="text-xs leading-5 text-[var(--ot-text-secondary)]">
-                  SAR observation loaded. Processing is constrained by the selected catalogue ID, acquisition time and available metadata filters. Sentinel Hub does not accept a catalogue item ID directly, so exact scene identity cannot be guaranteed when multiple source scenes share those filters. Oil-slick classification is a separate processing stage.
+                  SAR observation loaded from the selected catalogue item ID, constrained to a one-minute window around its verified acquisition time. Oil-slick classification is a separate processing stage.
                 </p>
                 <button
                   type="button"

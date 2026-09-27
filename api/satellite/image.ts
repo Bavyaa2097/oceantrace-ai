@@ -5,12 +5,14 @@ interface ImageRequest {
 
 interface CatalogueFeature {
   id?: unknown;
+  bbox?: unknown;
   properties?: unknown;
 }
 
 interface ErrorResponse {
   ok: false;
   error: string;
+  status?: number;
 }
 
 interface ResponseWriter {
@@ -27,6 +29,7 @@ const CATALOG_URL = 'https://sh.dataspace.copernicus.eu/catalog/v1/search';
 const PROCESS_URL = 'https://sh.dataspace.copernicus.eu/process/v1';
 const AUTH_TIMEOUT_MS = 10_000;
 const PROCESS_TIMEOUT_MS = 30_000;
+const ACQUISITION_TIME_WINDOW_MS = 60_000;
 const EVALSCRIPT = `//VERSION=3
 function setup() {
   return {
@@ -45,6 +48,12 @@ function evaluatePixel(sample) {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function isFiniteBbox(value: unknown): value is [number, number, number, number] {
+  return Array.isArray(value) &&
+    value.length === 4 &&
+    value.every((coordinate) => typeof coordinate === 'number' && Number.isFinite(coordinate));
 }
 
 function parseIsoDateTime(value: unknown): number | null {
@@ -75,29 +84,6 @@ function parseIsoDateTime(value: unknown): number | null {
     return null;
   }
 
-  function normalizeOrbitDirection(value: unknown): 'ASCENDING' | 'DESCENDING' | undefined {
-    if (typeof value !== 'string') return undefined;
-    const direction = value.toUpperCase();
-    return direction === 'ASCENDING' || direction === 'DESCENDING' ? direction : undefined;
-  }
-
-  function normalizePolarization(value: unknown): string | undefined {
-    const validValues = ['DV', 'DH', 'SV', 'SH', 'HH', 'HV', 'VV', 'VH'];
-    if (typeof value === 'string' && validValues.includes(value.toUpperCase())) {
-      return value.toUpperCase();
-    }
-
-    if (!Array.isArray(value) || !value.every((band) => typeof band === 'string')) return undefined;
-    const bands = new Set(value.map((band: string) => band.toUpperCase()));
-    if (bands.has('VV') && bands.has('VH')) return 'DV';
-    if (bands.has('HH') && bands.has('HV')) return 'DH';
-    if (bands.has('VV')) return 'VV';
-    if (bands.has('VH')) return 'VH';
-    if (bands.has('HH')) return 'HH';
-    if (bands.has('HV')) return 'HV';
-    return undefined;
-  }
-
   const timestamp = Date.parse(value);
   return Number.isFinite(timestamp) ? timestamp : null;
 }
@@ -120,9 +106,20 @@ async function fetchWithTimeout(
 function sendError(
   res: ResponseWriter,
   status: number,
-  error: string
+  error: string,
+  details?: { status?: number }
 ): void {
-  res.status(status).json({ ok: false, error });
+  res.status(status).json({ ok: false, error, ...details });
+}
+
+function bboxesIntersect(
+  first: number[],
+  second: number[]
+): boolean {
+  return first[0] <= second[2] &&
+    first[2] >= second[0] &&
+    first[1] <= second[3] &&
+    first[3] >= second[1];
 }
 
 export default async function handler(req: ImageRequest, res: ResponseWriter): Promise<void> {
@@ -161,9 +158,7 @@ export default async function handler(req: ImageRequest, res: ResponseWriter): P
   }
 
   if (
-    !Array.isArray(bbox) ||
-    bbox.length !== 4 ||
-    !bbox.every((coordinate) => typeof coordinate === 'number' && Number.isFinite(coordinate)) ||
+    !isFiniteBbox(bbox) ||
     bbox[0] >= bbox[2] ||
     bbox[1] >= bbox[3]
   ) {
@@ -222,7 +217,6 @@ export default async function handler(req: ImageRequest, res: ResponseWriter): P
     return;
   }
 
-  let selectedProperties: Record<string, unknown>;
   let selectedDatetime: string;
   try {
     const catalogueResponse = await fetchWithTimeout(
@@ -267,7 +261,13 @@ export default async function handler(req: ImageRequest, res: ResponseWriter): P
       return;
     }
 
-    selectedProperties = feature.properties;
+    if (feature.bbox !== undefined) {
+      if (!isFiniteBbox(feature.bbox) || !bboxesIntersect(feature.bbox, bbox)) {
+        sendError(res, 404, 'Selected acquisition does not intersect the requested area');
+        return;
+      }
+    }
+
     selectedDatetime = new Date(selectedTimestamp).toISOString();
   } catch {
     sendError(res, 502, 'Copernicus catalogue verification failed');
@@ -275,22 +275,13 @@ export default async function handler(req: ImageRequest, res: ResponseWriter): P
   }
 
   try {
-    const dataFilter: Record<string, unknown> = {
-      timeRange: { from: selectedDatetime, to: selectedDatetime },
-      mosaickingOrder: 'leastRecent',
+    const selectedTime = Date.parse(selectedDatetime);
+    const dataFilter = {
+      timeRange: {
+        from: new Date(selectedTime - ACQUISITION_TIME_WINDOW_MS).toISOString(),
+        to: new Date(selectedTime + ACQUISITION_TIME_WINDOW_MS).toISOString(),
+      },
     };
-    const acquisitionMode = selectedProperties['sar:instrument_mode'];
-    if (typeof acquisitionMode === 'string') {
-      dataFilter.acquisitionMode = acquisitionMode;
-    }
-
-    const orbitDirection = normalizeOrbitDirection(selectedProperties['sat:orbit_state']);
-    if (orbitDirection) dataFilter.orbitDirection = orbitDirection;
-
-    const polarization = normalizePolarization(
-      selectedProperties['s1:polarization'] ?? selectedProperties['sar:polarizations']
-    );
-    if (polarization) dataFilter.polarization = polarization;
 
     const processResponse = await fetchWithTimeout(
       PROCESS_URL,
@@ -307,6 +298,7 @@ export default async function handler(req: ImageRequest, res: ResponseWriter): P
             data: [
               {
                 type: 'sentinel-1-grd',
+                id: acquisitionId,
                 dataFilter,
               },
             ],
@@ -328,7 +320,13 @@ export default async function handler(req: ImageRequest, res: ResponseWriter): P
     );
 
     if (!processResponse.ok) {
-      sendError(res, 502, 'Copernicus Processing API request failed');
+      console.error('Copernicus Processing API request failed', {
+        status: processResponse.status,
+        message: 'Upstream returned a non-success status',
+      });
+      sendError(res, 502, 'Copernicus Processing API request failed', {
+        status: processResponse.status,
+      });
       return;
     }
 
