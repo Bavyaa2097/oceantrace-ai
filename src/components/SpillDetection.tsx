@@ -39,6 +39,10 @@ import {
   SarAnomalyAnalysis,
   SarAnomalyCandidate,
 } from '../services/sarAnomalyDetection';
+import {
+  compareSarAnomalyCandidates,
+  SarAnomalyComparison,
+} from '../services/sarAnomalyComparison';
 import { MainMap } from './MainMap';
 
 interface SpillDetectionProps {
@@ -53,6 +57,7 @@ type StageState = 'pending' | 'active' | 'complete';
 const DEFAULT_BBOX: SatelliteBoundingBox = [72.0, 10.0, 72.8, 11.2];
 const DEFAULT_RADIUS_KM = 25;
 const AIS_TIME_WINDOW_MS = 6 * 60 * 60 * 1000;
+const SAR_COMPARISON_MIN_INTERVAL_MS = 60 * 60 * 1000;
 
 function toLocalDateTimeInput(date: Date): string {
   const localDate = new Date(date.getTime() - date.getTimezoneOffset() * 60_000);
@@ -165,6 +170,10 @@ export const SpillDetection: React.FC<SpillDetectionProps> = ({
   const [sarAnalysis, setSarAnalysis] = useState<SarAnomalyAnalysis | null>(null);
   const [sarAnalysisState, setSarAnalysisState] = useState<AnalysisState>('idle');
   const [sarAnalysisError, setSarAnalysisError] = useState<string | null>(null);
+  const [comparisonAcquisitionId, setComparisonAcquisitionId] = useState('');
+  const [sarComparison, setSarComparison] = useState<SarAnomalyComparison | null>(null);
+  const [sarComparisonState, setSarComparisonState] = useState<RequestState>('idle');
+  const [sarComparisonError, setSarComparisonError] = useState<string | null>(null);
   const [localImageUrl, setLocalImageUrl] = useState<string | null>(null);
   const [searchError, setSearchError] = useState<string | null>(null);
   const [imageError, setImageError] = useState<string | null>(null);
@@ -184,6 +193,8 @@ export const SpillDetection: React.FC<SpillDetectionProps> = ({
   const [selectedCorrelationVesselId, setSelectedCorrelationVesselId] = useState<string | null>(null);
   const requestId = useRef(0);
   const sarAnalysisRequestId = useRef(0);
+  const sarComparisonRequestId = useRef(0);
+  const sarComparisonInFlight = useRef(false);
   const aisRequestId = useRef(0);
   const correlationRequestId = useRef(0);
   const aisRequestInFlight = useRef(false);
@@ -193,6 +204,7 @@ export const SpillDetection: React.FC<SpillDetectionProps> = ({
     return () => {
       requestId.current += 1;
       sarAnalysisRequestId.current += 1;
+      sarComparisonRequestId.current += 1;
       aisRequestId.current += 1;
       correlationRequestId.current += 1;
     };
@@ -210,6 +222,11 @@ export const SpillDetection: React.FC<SpillDetectionProps> = ({
     setCorrelationError(null);
     setSelectedCorrelationVesselId(null);
     setCorrelationState(correlationRequestInFlight.current ? 'loading' : 'idle');
+    sarComparisonRequestId.current += 1;
+    setComparisonAcquisitionId('');
+    setSarComparison(null);
+    setSarComparisonError(null);
+    setSarComparisonState(sarComparisonInFlight.current ? 'loading' : 'idle');
   }, [isDemoMode]);
 
   useEffect(() => {
@@ -306,6 +323,13 @@ export const SpillDetection: React.FC<SpillDetectionProps> = ({
     setCorrelationState(correlationRequestInFlight.current ? 'loading' : 'idle');
   };
 
+  const clearSarComparison = () => {
+    sarComparisonRequestId.current += 1;
+    setSarComparison(null);
+    setSarComparisonError(null);
+    setSarComparisonState(sarComparisonInFlight.current ? 'loading' : 'idle');
+  };
+
   const resetSelectedObservation = () => {
     requestId.current += 1;
     clearAisResults();
@@ -314,6 +338,8 @@ export const SpillDetection: React.FC<SpillDetectionProps> = ({
     setSelectedImageExtent(null);
     setSelectedAnomalyCandidateId(null);
     setCandidateFocusStatus(null);
+    setComparisonAcquisitionId('');
+    clearSarComparison();
     setImageState('idle');
     setImageError(null);
     setAcquisitions([]);
@@ -340,6 +366,8 @@ export const SpillDetection: React.FC<SpillDetectionProps> = ({
     setSelectedImageExtent(null);
     setSelectedAnomalyCandidateId(null);
     setCandidateFocusStatus(null);
+    setComparisonAcquisitionId('');
+    clearSarComparison();
     setImageState('idle');
     setImageError(null);
     clearAisResults();
@@ -365,6 +393,8 @@ export const SpillDetection: React.FC<SpillDetectionProps> = ({
     const center = getBoundingBoxCenter(acquisition.bbox);
     setSelectedAnomalyCandidateId(null);
     setCandidateFocusStatus(null);
+    setComparisonAcquisitionId('');
+    clearSarComparison();
     setSelectedImageExtent(null);
     setInvestigationLat(center ? String(center.lat) : '');
     setInvestigationLon(center ? String(center.lon) : '');
@@ -425,6 +455,96 @@ export const SpillDetection: React.FC<SpillDetectionProps> = ({
     setInvestigationLat(focus.lat.toFixed(6));
     setInvestigationLon(focus.lon.toFixed(6));
     setCandidateFocusStatus('derived');
+  };
+
+  const handleCompareObservations = async () => {
+    if (
+      isDemoMode ||
+      sarComparisonInFlight.current ||
+      !selectedAcquisition ||
+      !selectedAcquisition.id ||
+      !selectedAcquisition.datetime ||
+      !imageUrl ||
+      !sarAnalysis ||
+      !selectedImageExtent ||
+      sarAnalysisState !== 'complete'
+    ) {
+      return;
+    }
+
+    const secondAcquisition = acquisitions.find(
+      (acquisition) => acquisition.id === comparisonAcquisitionId,
+    );
+    if (
+      !secondAcquisition?.id ||
+      !secondAcquisition.datetime ||
+      secondAcquisition.id === selectedAcquisition.id ||
+      !Number.isFinite(Date.parse(secondAcquisition.datetime)) ||
+      !Number.isFinite(Date.parse(selectedAcquisition.datetime)) ||
+      Math.abs(
+        Date.parse(secondAcquisition.datetime) - Date.parse(selectedAcquisition.datetime),
+      ) < SAR_COMPARISON_MIN_INTERVAL_MS
+    ) {
+      setSarComparisonError('Select a different Sentinel-1 acquisition at least one hour apart.');
+      setSarComparisonState('error');
+      return;
+    }
+
+    const searchInput = validateParameters();
+    if (!searchInput) {
+      setSarComparisonError('A valid area and date range are required to compare acquisitions.');
+      setSarComparisonState('error');
+      return;
+    }
+
+    const secondInput: SatelliteSearchInput = {
+      bbox: secondAcquisition.bbox ?? searchInput.bbox,
+      from: secondAcquisition.datetime,
+      to: secondAcquisition.datetime,
+    };
+    if (!getBoundingBoxCenter(selectedImageExtent) || !getBoundingBoxCenter(secondInput.bbox)) {
+      setSarComparisonError('Geographic comparison is unavailable because an acquisition has no valid bounding box.');
+      setSarComparisonState('error');
+      return;
+    }
+
+    const requestIdForComparison = ++sarComparisonRequestId.current;
+    sarComparisonInFlight.current = true;
+    setSarComparison(null);
+    setSarComparisonError(null);
+    setSarComparisonState('loading');
+    let temporaryImageUrl: string | null = null;
+
+    try {
+      const imageBlob = await getSatelliteImage({
+        ...secondInput,
+        acquisitionId: secondAcquisition.id,
+      });
+      if (sarComparisonRequestId.current !== requestIdForComparison) return;
+
+      temporaryImageUrl = URL.createObjectURL(imageBlob);
+      const secondAnalysis = await analyzeSarImage(temporaryImageUrl);
+      if (sarComparisonRequestId.current !== requestIdForComparison) return;
+
+      const comparison = compareSarAnomalyCandidates(
+        sarAnalysis,
+        selectedImageExtent,
+        secondAnalysis,
+        secondInput.bbox,
+      );
+      setSarComparison(comparison);
+      setSarComparisonState('success');
+    } catch (error) {
+      if (sarComparisonRequestId.current !== requestIdForComparison) return;
+      setSarComparisonError(getApiErrorMessage(error, 'SAR observations could not be compared.'));
+      setSarComparisonState('error');
+    } finally {
+      if (temporaryImageUrl) URL.revokeObjectURL(temporaryImageUrl);
+      sarComparisonInFlight.current = false;
+      if (sarComparisonRequestId.current !== requestIdForComparison) {
+        setSarComparisonState('idle');
+      }
+    }
   };
 
   const handleFindAisCandidates = async () => {
@@ -588,6 +708,21 @@ export const SpillDetection: React.FC<SpillDetectionProps> = ({
   const selectedAcquisitionTimestamp = selectedAcquisition?.datetime
     ? Date.parse(selectedAcquisition.datetime)
     : Number.NaN;
+  const comparisonAcquisition = acquisitions.find(
+    (acquisition) => acquisition.id === comparisonAcquisitionId,
+  ) ?? null;
+  const temporallyDistinctComparisonAcquisitions = selectedAcquisition?.id && Number.isFinite(selectedAcquisitionTimestamp)
+    ? acquisitions.filter((acquisition) =>
+        Boolean(
+          acquisition.id &&
+          acquisition.datetime &&
+          acquisition.id !== selectedAcquisition.id &&
+          Number.isFinite(Date.parse(acquisition.datetime)) &&
+          Math.abs(Date.parse(acquisition.datetime) - selectedAcquisitionTimestamp) >=
+            SAR_COMPARISON_MIN_INTERVAL_MS
+        )
+      )
+    : [];
   const aisWindowFrom = Number.isFinite(selectedAcquisitionTimestamp)
     ? new Date(selectedAcquisitionTimestamp - AIS_TIME_WINDOW_MS).toISOString()
     : null;
@@ -917,17 +1052,35 @@ export const SpillDetection: React.FC<SpillDetectionProps> = ({
                             <p className="text-[var(--ot-text-secondary)]">Instrument mode: {acquisition.properties.instrumentMode}</p>
                           )}
                         </div>
-                        <button
-                          type="button"
-                          onClick={() => void handleSelectAcquisition(acquisition)}
-                          disabled={isDemoMode || imageState === 'loading' || aisState === 'loading'}
-                          className="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-[var(--ot-border)] px-2.5 py-2 text-[10px] font-semibold text-[var(--ot-primary)] hover:bg-[var(--ot-primary-soft)] disabled:cursor-not-allowed disabled:opacity-50"
-                        >
-                          {imageState === 'loading' && isSelected
-                            ? <RefreshCw className="h-3.5 w-3.5 animate-spin" />
-                            : <Eye className="h-3.5 w-3.5" />}
-                          VIEW OBSERVATION
-                        </button>
+                        <div className="flex shrink-0 flex-col gap-2">
+                          <button
+                            type="button"
+                            onClick={() => void handleSelectAcquisition(acquisition)}
+                            disabled={isDemoMode || imageState === 'loading' || aisState === 'loading'}
+                            className="inline-flex items-center gap-1.5 rounded-md border border-[var(--ot-border)] px-2.5 py-2 text-[10px] font-semibold text-[var(--ot-primary)] hover:bg-[var(--ot-primary-soft)] disabled:cursor-not-allowed disabled:opacity-50"
+                          >
+                            {imageState === 'loading' && isSelected
+                              ? <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                              : <Eye className="h-3.5 w-3.5" />}
+                            VIEW OBSERVATION
+                          </button>
+                          {selectedAcquisition?.id &&
+                            acquisition.id !== selectedAcquisition.id &&
+                            acquisition.datetime && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setComparisonAcquisitionId(acquisition.id ?? '');
+                                  clearSarComparison();
+                                }}
+                                disabled={isDemoMode || sarComparisonState === 'loading'}
+                                aria-pressed={comparisonAcquisitionId === acquisition.id}
+                                className="rounded-md border border-[var(--ot-border)] px-2.5 py-2 text-left text-[10px] font-semibold text-[var(--ot-text-secondary)] hover:border-[var(--ot-primary)] hover:text-[var(--ot-primary)] disabled:cursor-not-allowed disabled:opacity-50"
+                              >
+                                {comparisonAcquisitionId === acquisition.id ? 'SELECTED FOR COMPARISON' : 'SELECT FOR COMPARISON'}
+                              </button>
+                            )}
+                        </div>
                       </div>
                     </article>
                   );
@@ -1134,6 +1287,142 @@ export const SpillDetection: React.FC<SpillDetectionProps> = ({
                     Background median: {sarAnalysis.backgroundIntensity.toFixed(1)} / 255 · Dark-pixel threshold: {sarAnalysis.thresholdIntensity.toFixed(1)} / 255 · Components smaller than 12 pixels, components touching the 16-pixel inner edge margin, and near-black no-data regions are excluded.
                   </p>
                 </>
+              )}
+            </section>
+          )}
+
+          {imageUrl && !isDemoMode && selectedAcquisition && (
+            <section className="glass-panel space-y-4 rounded-xl border p-5 sm:p-6">
+              <div>
+                <h2 className="text-sm font-bold text-[var(--ot-text)]">MULTI-OBSERVATION SAR COMPARISON</h2>
+                <p className="mt-1 text-xs leading-5 text-[var(--ot-text-secondary)]">
+                  Compare candidate regions in this observation with another catalogue acquisition covering the same investigation area.
+                </p>
+              </div>
+
+              <p className="rounded-lg border border-[#D99A3D]/30 bg-[#D99A3D]/10 p-3 text-xs leading-5 text-[var(--ot-text-secondary)]">
+                Persistence across observations indicates a recurring image pattern and does not confirm an oil spill.
+              </p>
+
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
+                <label className="flex-1 space-y-1 text-[11px] text-[var(--ot-muted)]">
+                  <span>Comparison acquisition</span>
+                  <select
+                    aria-label="Select Sentinel-1 acquisition for SAR comparison"
+                    value={comparisonAcquisitionId}
+                    onChange={(event) => {
+                      setComparisonAcquisitionId(event.target.value);
+                      clearSarComparison();
+                    }}
+                    disabled={sarComparisonState === 'loading'}
+                    className="w-full rounded-md border border-[var(--ot-border)] bg-[var(--ot-card)] px-3 py-2 text-sm text-[var(--ot-text)] disabled:opacity-50"
+                  >
+                    <option value="">Select another acquisition</option>
+                    {temporallyDistinctComparisonAcquisitions
+                      .map((acquisition) => (
+                        <option key={acquisition.id} value={acquisition.id}>
+                          {acquisition.datetime} · {acquisition.properties?.platform ?? 'Sentinel-1'}
+                        </option>
+                      ))}
+                  </select>
+                </label>
+                <button
+                  type="button"
+                  onClick={() => void handleCompareObservations()}
+                  disabled={
+                    !comparisonAcquisitionId ||
+                    !selectedAcquisition.id ||
+                    !selectedAcquisition.datetime ||
+                    !sarAnalysis ||
+                    sarAnalysisState !== 'complete' ||
+                    sarComparisonState === 'loading'
+                  }
+                  className="inline-flex shrink-0 items-center justify-center gap-2 rounded-md bg-[var(--ot-primary)] px-4 py-2.5 text-xs font-semibold text-white hover:bg-[var(--ot-primary-dark)] disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {sarComparisonState === 'loading'
+                    ? <RefreshCw className="h-4 w-4 animate-spin" />
+                    : <Layers className="h-4 w-4" />}
+                  {sarComparisonState === 'loading' ? 'COMPARING OBSERVATIONS…' : 'COMPARE OBSERVATIONS'}
+                </button>
+              </div>
+
+              {temporallyDistinctComparisonAcquisitions.length === 0 && (
+                <p className="rounded-lg border border-[var(--ot-border)] bg-[var(--ot-shell)] p-3 text-xs leading-5 text-[var(--ot-text-secondary)]">
+                  No temporally distinct comparison observation is available within the selected catalogue results.
+                </p>
+              )}
+              <p className="text-xs leading-5 text-[var(--ot-text-secondary)]">
+                Temporal comparison requires distinct observation times at least one hour apart; records with smaller time differences are not treated as a temporal change.
+              </p>
+
+              {sarComparisonError && (
+                <p role="alert" className="rounded-lg border border-[#B84E4B]/30 bg-[#B84E4B]/10 p-3 text-xs text-[#B84E4B]">
+                  {sarComparisonError}
+                </p>
+              )}
+
+              {sarComparison && comparisonAcquisition && (
+                <div className="space-y-3 border-t border-[var(--ot-border)] pt-4">
+                  <div className="grid grid-cols-1 gap-3 text-xs sm:grid-cols-2">
+                    <div className="rounded-md border border-[var(--ot-border)] p-3">
+                      <div className="text-[var(--ot-muted)]">Observation 1</div>
+                      <div className="mt-1 font-semibold text-[var(--ot-text)]">
+                        {selectedAcquisition.datetime}
+                      </div>
+                    </div>
+                    <div className="rounded-md border border-[var(--ot-border)] p-3">
+                      <div className="text-[var(--ot-muted)]">Observation 2</div>
+                      <div className="mt-1 font-semibold text-[var(--ot-text)]">
+                        {comparisonAcquisition.datetime}
+                      </div>
+                    </div>
+                  </div>
+                  <p className="text-xs leading-5 text-[var(--ot-text-secondary)]">
+                    Geographic candidate bounding boxes are considered a matching spatial pattern when their intersection-over-union is at least 25%. Candidate-region overlap is a spatial comparison only.
+                  </p>
+                  {sarComparison.items.length === 0 ? (
+                    <p className="rounded-lg border border-[var(--ot-border)] bg-[var(--ot-shell)] p-3 text-xs text-[var(--ot-text-secondary)]">
+                      No candidate regions were detected in either observation.
+                    </p>
+                  ) : (
+                    <div className="overflow-x-auto rounded-lg border border-[var(--ot-border)]">
+                      <table className="w-full min-w-[520px] text-left text-xs">
+                        <thead className="bg-[var(--ot-shell)] text-[var(--ot-text-secondary)]">
+                          <tr>
+                            <th className="px-3 py-2 font-semibold">Comparison</th>
+                            <th className="px-3 py-2 font-semibold">Observation 1 candidate</th>
+                            <th className="px-3 py-2 font-semibold">Observation 2 candidate</th>
+                            <th className="px-3 py-2 font-semibold">Geographic overlap</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-[var(--ot-border)]">
+                          {sarComparison.items.map((item, index) => (
+                            <tr key={`${item.status}-${item.firstCandidate?.id ?? 'none'}-${item.secondCandidate?.id ?? 'none'}-${index}`}>
+                              <td className="px-3 py-2 font-semibold text-[var(--ot-text)]">
+                                {item.status === 'persistent'
+                                  ? 'Persistent spatial pattern'
+                                  : item.status === 'new'
+                                    ? 'Newly appearing pattern'
+                                    : 'Disappeared pattern'}
+                              </td>
+                              <td className="px-3 py-2 text-[var(--ot-text-secondary)]">
+                                {item.firstCandidate ? `Candidate ${item.firstCandidate.id}` : '—'}
+                              </td>
+                              <td className="px-3 py-2 text-[var(--ot-text-secondary)]">
+                                {item.secondCandidate ? `Candidate ${item.secondCandidate.id}` : '—'}
+                              </td>
+                              <td className="px-3 py-2 text-[var(--ot-text-secondary)]">
+                                {item.geographicBoundingBoxOverlap === null
+                                  ? '—'
+                                  : `${(item.geographicBoundingBoxOverlap * 100).toFixed(1)}%`}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
               )}
             </section>
           )}
