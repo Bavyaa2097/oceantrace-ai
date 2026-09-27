@@ -192,8 +192,8 @@ export default async function handler(req: VesselsRequest, res: ResponseWriter):
   }
 
   const startDate = toUtcDate(fromTimestamp);
-  const inclusiveEndDate = toUtcDate(toTimestamp);
-  const endExclusive = new Date(`${inclusiveEndDate}T00:00:00.000Z`);
+  const lastRequestedDate = toUtcDate(toTimestamp);
+  const endExclusive = new Date(`${lastRequestedDate}T00:00:00.000Z`);
   endExclusive.setUTCDate(endExclusive.getUTCDate() + 1);
   const endDate = endExclusive.toISOString().slice(0, 10);
   const [minLon, minLat, maxLon, maxLat] = bboxValues;
@@ -215,8 +215,8 @@ export default async function handler(req: VesselsRequest, res: ResponseWriter):
   const url = new URL(GFW_URL);
   url.searchParams.set('datasets[0]', DATASET);
   url.searchParams.set('date-range', `${startDate},${endDate}`);
-  url.searchParams.set('temporal-resolution', 'DAILY');
-  url.searchParams.set('spatial-resolution', 'LOW');
+  url.searchParams.set('temporal-resolution', 'HOURLY');
+  url.searchParams.set('spatial-resolution', 'HIGH');
   url.searchParams.set('spatial-aggregation', 'false');
   url.searchParams.set('group-by', 'VESSEL_ID');
   url.searchParams.set('format', 'JSON');
@@ -231,7 +231,7 @@ export default async function handler(req: VesselsRequest, res: ResponseWriter):
         Authorization: `Bearer ${token}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ geojson: JSON.stringify(geojson) }),
+      body: JSON.stringify({ geojson }),
       signal: controller.signal,
     });
 
@@ -245,10 +245,9 @@ export default async function handler(req: VesselsRequest, res: ResponseWriter):
             : upstream.status === 429
               ? 'rate_limited'
               : 'upstream_error';
-      console.warn('GFW vessel activity request failed', {
+      console.warn('GFW 4Wings request failed', {
         status: upstream.status,
-        endpoint: '4wings_report',
-        count: 0,
+        message: 'Upstream request rejected',
       });
       res.status(apiStatus).json({
         ok: false,
