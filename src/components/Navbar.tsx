@@ -119,8 +119,10 @@ export const Navbar: React.FC<NavbarProps> = ({
             {/* Mode Toggle */}
             <button
               onClick={() => setIsDemoMode(!isDemoMode)}
-              className="hidden xl:flex items-center gap-1 px-2 py-1 rounded-md text-[10px] border border-[#D9E3E7] bg-[#F4F7F8] text-[#647780] hover:border-[#A9C3CA] hover:text-[#123B4A] transition-all"
+              className="hidden md:flex items-center gap-1 px-2 py-1 rounded-md text-[10px] border border-[#D9E3E7] bg-[#F4F7F8] text-[#647780] hover:border-[#A9C3CA] hover:text-[#123B4A] transition-all"
               title="Toggle sample data or live data mode"
+              aria-label={`Switch to ${isDemoMode ? 'live' : 'sample'} mode`}
+              aria-pressed={!isDemoMode}
             >
               {isDemoMode ? (
                 <>
@@ -222,6 +224,27 @@ export const Navbar: React.FC<NavbarProps> = ({
             >
               <Play className="w-3.5 h-3.5 fill-current" />
               {isDemoRunning ? 'RUNNING...' : 'PLAY SCENARIO'}
+            </button>
+            <button
+              onClick={() => {
+                setIsDemoMode(!isDemoMode);
+                setShowMobileMenu(false);
+              }}
+              className="flex flex-1 items-center justify-center gap-1.5 px-3 py-2 rounded-lg border border-[#D9E3E7] bg-[#F4F7F8] text-[#647780] text-[11px] font-semibold"
+              aria-label={`Switch to ${isDemoMode ? 'live' : 'sample'} mode`}
+              aria-pressed={!isDemoMode}
+            >
+              {isDemoMode ? (
+                <>
+                  <ToggleRight className="w-3.5 h-3.5 text-blue-400" />
+                  <span>SAMPLE</span>
+                </>
+              ) : (
+                <>
+                  <ToggleLeft className="w-3.5 h-3.5 text-slate-500" />
+                  <span>LIVE</span>
+                </>
+              )}
             </button>
             <button
               onClick={() => {
