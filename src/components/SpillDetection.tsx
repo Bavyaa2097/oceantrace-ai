@@ -34,6 +34,10 @@ import {
   SatelliteSearchInput,
   searchSatelliteAcquisitions,
 } from '../services/satelliteApi';
+import {
+  analyzeSarImage,
+  SarAnomalyAnalysis,
+} from '../services/sarAnomalyDetection';
 
 interface SpillDetectionProps {
   isDemoMode: boolean;
@@ -41,6 +45,7 @@ interface SpillDetectionProps {
 }
 
 type RequestState = 'idle' | 'loading' | 'success' | 'error';
+type AnalysisState = 'idle' | 'analyzing' | 'complete' | 'error';
 type StageState = 'pending' | 'active' | 'complete';
 
 const DEFAULT_BBOX: SatelliteBoundingBox = [72.0, 10.0, 72.8, 11.2];
@@ -119,6 +124,9 @@ export const SpillDetection: React.FC<SpillDetectionProps> = ({
   const [imageState, setImageState] = useState<RequestState>('idle');
   const [selectedAcquisition, setSelectedAcquisition] = useState<SatelliteAcquisition | null>(null);
   const [imageUrl, setImageUrl] = useState<string | null>(null);
+  const [sarAnalysis, setSarAnalysis] = useState<SarAnomalyAnalysis | null>(null);
+  const [sarAnalysisState, setSarAnalysisState] = useState<AnalysisState>('idle');
+  const [sarAnalysisError, setSarAnalysisError] = useState<string | null>(null);
   const [localImageUrl, setLocalImageUrl] = useState<string | null>(null);
   const [searchError, setSearchError] = useState<string | null>(null);
   const [imageError, setImageError] = useState<string | null>(null);
@@ -135,6 +143,7 @@ export const SpillDetection: React.FC<SpillDetectionProps> = ({
   const [correlationError, setCorrelationError] = useState<string | null>(null);
   const [selectedCorrelationVesselId, setSelectedCorrelationVesselId] = useState<string | null>(null);
   const requestId = useRef(0);
+  const sarAnalysisRequestId = useRef(0);
   const aisRequestId = useRef(0);
   const correlationRequestId = useRef(0);
   const aisRequestInFlight = useRef(false);
@@ -143,6 +152,7 @@ export const SpillDetection: React.FC<SpillDetectionProps> = ({
   useEffect(() => {
     return () => {
       requestId.current += 1;
+      sarAnalysisRequestId.current += 1;
       aisRequestId.current += 1;
       correlationRequestId.current += 1;
     };
@@ -161,6 +171,38 @@ export const SpillDetection: React.FC<SpillDetectionProps> = ({
     setSelectedCorrelationVesselId(null);
     setCorrelationState(correlationRequestInFlight.current ? 'loading' : 'idle');
   }, [isDemoMode]);
+
+  useEffect(() => {
+    const currentRequestId = ++sarAnalysisRequestId.current;
+    setSarAnalysis(null);
+    setSarAnalysisError(null);
+
+    if (!imageUrl || isDemoMode) {
+      setSarAnalysisState('idle');
+      return;
+    }
+
+    setSarAnalysisState('analyzing');
+    void analyzeSarImage(imageUrl)
+      .then((result) => {
+        if (sarAnalysisRequestId.current !== currentRequestId) return;
+        setSarAnalysis(result);
+        setSarAnalysisState('complete');
+      })
+      .catch((error: unknown) => {
+        if (sarAnalysisRequestId.current !== currentRequestId) return;
+        setSarAnalysisError(
+          error instanceof Error
+            ? error.message
+            : 'SAR image analysis could not be completed.'
+        );
+        setSarAnalysisState('error');
+      });
+
+    return () => {
+      sarAnalysisRequestId.current += 1;
+    };
+  }, [imageUrl, isDemoMode]);
 
   useEffect(() => {
     return () => {
@@ -552,9 +594,19 @@ export const SpillDetection: React.FC<SpillDetectionProps> = ({
     },
     {
       title: 'Prepare for spill analysis',
-      detail: 'Classification is a separate, not-yet-connected stage.',
-      state: 'pending',
-      status: 'Not implemented',
+      detail: 'Identify and summarize image-based SAR surface-anomaly candidates.',
+      state: sarAnalysisState === 'analyzing'
+        ? 'active'
+        : sarAnalysisState === 'complete'
+          ? 'complete'
+          : 'pending',
+      status: sarAnalysisState === 'analyzing'
+        ? 'Analyzing'
+        : sarAnalysisState === 'complete'
+          ? 'Complete'
+          : sarAnalysisState === 'error'
+            ? 'Unavailable'
+            : 'Pending',
     },
   ];
 
@@ -797,20 +849,64 @@ export const SpillDetection: React.FC<SpillDetectionProps> = ({
             <div className="relative flex min-h-[320px] w-full items-center justify-center overflow-hidden rounded-lg border border-[#3B4650] bg-[#171B20] p-3 sm:min-h-[440px]">
               {imageUrl ? (
                 <>
-                  <img
-                    src={imageUrl}
-                    alt={`Sentinel-1 SAR observation${selectedAcquisition?.datetime ? ` from ${selectedAcquisition.datetime}` : ''}`}
-                    className="max-h-[520px] w-full object-contain"
-                  />
-                  {selectedAcquisition && (
-                    <div className="absolute left-3 top-3 max-w-[calc(100%-1.5rem)] rounded-md bg-[#171B20]/85 px-3 py-2 text-[10px] leading-5 text-white shadow backdrop-blur-sm">
-                      <div className="font-semibold">Sentinel-1 · SAR IMAGE</div>
-                      {selectedAcquisition.datetime && <div>OBSERVATION TIME: {formatAcquisitionDate(selectedAcquisition.datetime)}</div>}
-                      {selectedAcquisition.properties?.platform && <div>PLATFORM: {selectedAcquisition.properties.platform}</div>}
-                      {selectedAcquisition.properties?.orbitDirection && <div>ORBIT: {selectedAcquisition.properties.orbitDirection}</div>}
-                      {selectedAcquisition.properties?.instrumentMode && <div>INSTRUMENT MODE: {selectedAcquisition.properties.instrumentMode}</div>}
-                    </div>
-                  )}
+                  <div
+                    className="relative mx-auto w-full max-w-[520px] max-h-[520px]"
+                    style={{
+                      aspectRatio: sarAnalysis
+                        ? `${sarAnalysis.width} / ${sarAnalysis.height}`
+                        : '1 / 1',
+                    }}
+                  >
+                    <img
+                      src={imageUrl}
+                      alt={`Sentinel-1 SAR observation${selectedAcquisition?.datetime ? ` from ${selectedAcquisition.datetime}` : ''}`}
+                      className="absolute inset-0 h-full w-full object-fill"
+                    />
+                    {sarAnalysis && (
+                      <svg
+                        aria-label="SAR surface-anomaly candidate regions"
+                        className="pointer-events-none absolute inset-0 h-full w-full"
+                        viewBox={`0 0 ${sarAnalysis.width} ${sarAnalysis.height}`}
+                        preserveAspectRatio="none"
+                      >
+                        {sarAnalysis.candidates.map((candidate) => (
+                          <g key={candidate.id}>
+                            <rect
+                              x={candidate.boundingBox.minX}
+                              y={candidate.boundingBox.minY}
+                              width={candidate.boundingBox.width}
+                              height={candidate.boundingBox.height}
+                              fill="#E7A94B"
+                              fillOpacity="0.12"
+                              stroke="#F1BE68"
+                              strokeWidth={Math.max(1.5, sarAnalysis.width / 300)}
+                            />
+                            <text
+                              x={candidate.boundingBox.minX + 3}
+                              y={Math.max(12, candidate.boundingBox.minY - 4)}
+                              fill="#FFF4DD"
+                              fontSize={Math.max(11, sarAnalysis.width / 45)}
+                              fontWeight="700"
+                              paintOrder="stroke"
+                              stroke="#171B20"
+                              strokeWidth="3"
+                            >
+                              {candidate.id}
+                            </text>
+                          </g>
+                        ))}
+                      </svg>
+                    )}
+                    {selectedAcquisition && (
+                      <div className="absolute left-2 top-2 max-w-[calc(100%-1rem)] rounded-md bg-[#171B20]/85 px-3 py-2 text-[10px] leading-5 text-white shadow backdrop-blur-sm">
+                        <div className="font-semibold">Sentinel-1 · SAR IMAGE</div>
+                        {selectedAcquisition.datetime && <div>OBSERVATION TIME: {formatAcquisitionDate(selectedAcquisition.datetime)}</div>}
+                        {selectedAcquisition.properties?.platform && <div>PLATFORM: {selectedAcquisition.properties.platform}</div>}
+                        {selectedAcquisition.properties?.orbitDirection && <div>ORBIT: {selectedAcquisition.properties.orbitDirection}</div>}
+                        {selectedAcquisition.properties?.instrumentMode && <div>INSTRUMENT MODE: {selectedAcquisition.properties.instrumentMode}</div>}
+                      </div>
+                    )}
+                  </div>
                 </>
               ) : imageState === 'loading' ? (
                 <div className="flex flex-col items-center gap-3 text-[#B2BCC5]">
@@ -844,6 +940,81 @@ export const SpillDetection: React.FC<SpillDetectionProps> = ({
               </div>
             )}
           </section>
+
+          {imageUrl && !isDemoMode && (
+            <section className="glass-panel space-y-4 rounded-xl border p-5 sm:p-6">
+              <div>
+                <h2 className="text-sm font-bold text-[var(--ot-text)]">SAR SURFACE-ANOMALY CANDIDATES</h2>
+                <p className="mt-1 text-xs leading-5 text-[var(--ot-text-secondary)]">
+                  Deterministic image analysis compares grayscale intensity with a robust image background estimate and groups connected darker pixels.
+                </p>
+              </div>
+
+              <p className="rounded-lg border border-[#D99A3D]/30 bg-[#D99A3D]/10 p-3 text-xs leading-5 text-[var(--ot-text-secondary)]">
+                SAR anomaly candidates are image-based surface patterns and are not confirmed oil spills.
+              </p>
+
+              {sarAnalysisState === 'analyzing' && (
+                <div className="flex items-center gap-2 text-xs text-[var(--ot-text-secondary)]" role="status">
+                  <RefreshCw className="h-4 w-4 animate-spin text-[var(--ot-primary)]" />
+                  Analyzing retrieved SAR image…
+                </div>
+              )}
+              {sarAnalysisState === 'error' && sarAnalysisError && (
+                <p role="alert" className="rounded-lg border border-[#B84E4B]/30 bg-[#B84E4B]/10 p-3 text-xs text-[#B84E4B]">
+                  {sarAnalysisError}
+                </p>
+              )}
+              {sarAnalysisState === 'complete' && sarAnalysis && (
+                <>
+                  {sarAnalysis.candidates.length === 0 ? (
+                    <p className="rounded-lg border border-[var(--ot-border)] bg-[var(--ot-shell)] p-3 text-xs text-[var(--ot-text-secondary)]">
+                      No candidate anomalies detected.
+                    </p>
+                  ) : (
+                    <div className="space-y-3">
+                      <p className="text-xs text-[var(--ot-text-secondary)]">
+                        {sarAnalysis.candidates.length} candidate {sarAnalysis.candidates.length === 1 ? 'region' : 'regions'} returned; numbered outlines correspond to the image overlay.
+                      </p>
+                      <div className="overflow-x-auto rounded-lg border border-[var(--ot-border)]">
+                        <table className="w-full min-w-[680px] text-left text-xs">
+                          <thead className="bg-[var(--ot-shell)] text-[var(--ot-text-secondary)]">
+                            <tr>
+                              <th className="px-3 py-2 font-semibold">Candidate</th>
+                              <th className="px-3 py-2 font-semibold">Bounding box (pixels)</th>
+                              <th className="px-3 py-2 font-semibold">Pixel area</th>
+                              <th className="px-3 py-2 font-semibold">Centroid (pixels)</th>
+                              <th className="px-3 py-2 font-semibold">Mean intensity</th>
+                              <th className="px-3 py-2 font-semibold">Background contrast</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-[var(--ot-border)]">
+                            {sarAnalysis.candidates.map((candidate) => (
+                              <tr key={candidate.id}>
+                                <td className="px-3 py-2 font-semibold text-[var(--ot-text)]">{candidate.id}</td>
+                                <td className="px-3 py-2 text-[var(--ot-text-secondary)]">
+                                  x {candidate.boundingBox.minX}–{candidate.boundingBox.maxX}, y {candidate.boundingBox.minY}–{candidate.boundingBox.maxY}
+                                </td>
+                                <td className="px-3 py-2 text-[var(--ot-text-secondary)]">{candidate.pixelArea}</td>
+                                <td className="px-3 py-2 text-[var(--ot-text-secondary)]">
+                                  {candidate.centroid.x.toFixed(1)}, {candidate.centroid.y.toFixed(1)}
+                                </td>
+                                <td className="px-3 py-2 text-[var(--ot-text-secondary)]">{candidate.meanIntensity.toFixed(1)} / 255</td>
+                                <td className="px-3 py-2 text-[var(--ot-text-secondary)]">{(candidate.contrast * 100).toFixed(1)}%</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
+                  <p className="text-[11px] text-[var(--ot-muted)]">
+                    Background median: {sarAnalysis.backgroundIntensity.toFixed(1)} / 255 · Dark-pixel threshold: {sarAnalysis.thresholdIntensity.toFixed(1)} / 255 · Regions smaller than 12 pixels and the outer 3-pixel image border are excluded.
+                  </p>
+                </>
+              )}
+            </section>
+          )}
 
           {selectedAcquisition && !isDemoMode && (
             <section className="glass-panel space-y-5 rounded-xl border p-5 sm:p-6">
