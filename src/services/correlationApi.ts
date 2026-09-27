@@ -28,6 +28,7 @@ export interface AisCorrelationFactors {
   spatialScore: number;
   temporalScore: number;
   persistenceScore: number;
+  observationSpreadScore: number;
 }
 
 export interface AisCorrelationVessel {
@@ -36,14 +37,17 @@ export interface AisCorrelationVessel {
   mmsi: string | null;
   type: string | null;
   flag: string | null;
-  observationCount: number;
-  minimumDistanceKm: number;
   closestObservationTime: string | null;
-  minimumTemporalDifferenceHours: number | null;
   correlationIndicator: number;
   locationType: 'grid_cell_center';
   temporalPrecision: 'hour' | 'date';
   factors: AisCorrelationFactors;
+  metrics: {
+    observationCount: number;
+    minimumDistanceKm: number;
+    minimumTemporalDifferenceHours: number | null;
+    maximumObservationSeparationKm: number;
+  };
   basis: string[];
 }
 

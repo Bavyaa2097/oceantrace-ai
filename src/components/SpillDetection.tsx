@@ -1156,9 +1156,9 @@ export const SpillDetection: React.FC<SpillDetectionProps> = ({
                                   </td>
                                   <td className="px-3 py-2 text-[var(--ot-text-secondary)]">{vessel.mmsi ?? '—'}</td>
                                   <td className="px-3 py-2 font-semibold text-[var(--ot-text)]">{vessel.correlationIndicator}</td>
-                                  <td className="px-3 py-2 text-[var(--ot-text-secondary)]">{formatDistance(vessel.minimumDistanceKm)}</td>
+                                  <td className="px-3 py-2 text-[var(--ot-text-secondary)]">{formatDistance(vessel.metrics.minimumDistanceKm)}</td>
                                   <td className="px-3 py-2 text-[var(--ot-text-secondary)]">{vessel.closestObservationTime ?? 'Date-level only'}</td>
-                                  <td className="px-3 py-2 text-[var(--ot-text-secondary)]">{vessel.observationCount}</td>
+                                  <td className="px-3 py-2 text-[var(--ot-text-secondary)]">{vessel.metrics.observationCount}</td>
                                 </tr>
                               ))}
                             </tbody>
@@ -1178,7 +1178,7 @@ export const SpillDetection: React.FC<SpillDetectionProps> = ({
                                 .join(' · ') || 'No additional vessel metadata returned'}
                             </p>
                           </div>
-                          <dl className="grid grid-cols-1 gap-3 text-xs sm:grid-cols-3">
+                          <dl className="grid grid-cols-1 gap-3 text-xs sm:grid-cols-2">
                             <div className="rounded-md bg-[var(--ot-shell)] p-3">
                               <dt className="text-[var(--ot-muted)]">Spatial factor</dt>
                               <dd className="mt-1 font-semibold text-[var(--ot-text)]">{selectedCorrelationVessel.factors.spatialScore.toFixed(3)}</dd>
@@ -1193,6 +1193,24 @@ export const SpillDetection: React.FC<SpillDetectionProps> = ({
                             <div className="rounded-md bg-[var(--ot-shell)] p-3">
                               <dt className="text-[var(--ot-muted)]">Persistence factor</dt>
                               <dd className="mt-1 font-semibold text-[var(--ot-text)]">{selectedCorrelationVessel.factors.persistenceScore.toFixed(3)}</dd>
+                            </div>
+                            <div className="rounded-md bg-[var(--ot-shell)] p-3">
+                              <dt className="text-[var(--ot-muted)]">Observation spread factor</dt>
+                              <dd className="mt-1 font-semibold text-[var(--ot-text)]">{selectedCorrelationVessel.factors.observationSpreadScore.toFixed(3)}</dd>
+                            </div>
+                          </dl>
+                          <dl className="grid grid-cols-1 gap-3 text-xs sm:grid-cols-2">
+                            <div className="rounded-md bg-[var(--ot-shell)] p-3">
+                              <dt className="text-[var(--ot-muted)]">Maximum observation separation</dt>
+                              <dd className="mt-1 font-semibold text-[var(--ot-text)]">{formatDistance(selectedCorrelationVessel.metrics.maximumObservationSeparationKm)}</dd>
+                            </div>
+                            <div className="rounded-md bg-[var(--ot-shell)] p-3">
+                              <dt className="text-[var(--ot-muted)]">Minimum temporal difference</dt>
+                              <dd className="mt-1 font-semibold text-[var(--ot-text)]">
+                                {selectedCorrelationVessel.metrics.minimumTemporalDifferenceHours === null
+                                  ? 'Date-level only'
+                                  : `${selectedCorrelationVessel.metrics.minimumTemporalDifferenceHours.toFixed(2)} hours`}
+                              </dd>
                             </div>
                           </dl>
                           <div>

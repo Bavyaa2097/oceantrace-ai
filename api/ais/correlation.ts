@@ -23,10 +23,7 @@ interface CorrelationVessel {
   mmsi: string | null;
   type: string | null;
   flag: string | null;
-  observationCount: number;
-  minimumDistanceKm: number;
   closestObservationTime: string | null;
-  minimumTemporalDifferenceHours: number | null;
   correlationIndicator: number;
   locationType: 'grid_cell_center';
   temporalPrecision: 'hour' | 'date';
@@ -34,6 +31,13 @@ interface CorrelationVessel {
     spatialScore: number;
     temporalScore: number;
     persistenceScore: number;
+    observationSpreadScore: number;
+  };
+  metrics: {
+    observationCount: number;
+    minimumDistanceKm: number;
+    minimumTemporalDifferenceHours: number | null;
+    maximumObservationSeparationKm: number;
   };
   basis: string[];
 }
@@ -83,6 +87,8 @@ interface VesselAccumulator {
   minimumTemporalDifferenceHours: number | null;
   maxSpatialScore: number;
   maxTemporalScore: number;
+  maximumObservationSeparationKm: number;
+  locations: Array<{ lat: number; lon: number }>;
   hasHourlyTime: boolean;
   basis: Set<string>;
   observationKeys: Set<string>;
@@ -290,6 +296,8 @@ function makeVesselSummaries(
         minimumTemporalDifferenceHours: null,
         maxSpatialScore: 0,
         maxTemporalScore: 0,
+        maximumObservationSeparationKm: 0,
+        locations: [],
         hasHourlyTime: false,
         basis: new Set<string>(),
         observationKeys: new Set<string>(),
@@ -301,10 +309,17 @@ function makeVesselSummaries(
     vessel.observationKeys.add(key);
     vessel.observationCount += 1;
     vessel.minimumDistanceKm = Math.min(vessel.minimumDistanceKm, observation.distanceKm);
+    for (const location of vessel.locations) {
+      vessel.maximumObservationSeparationKm = Math.max(
+        vessel.maximumObservationSeparationKm,
+        haversineDistanceKm(location.lat, location.lon, observation.lat, observation.lon)
+      );
+    }
+    vessel.locations.push({ lat: observation.lat, lon: observation.lon });
 
     const spatialScore = Math.max(0, 1 - observation.distanceKm / radiusKm);
     vessel.maxSpatialScore = Math.max(vessel.maxSpatialScore, spatialScore);
-    if (spatialScore > 0) vessel.basis.add('near investigation point');
+    if (spatialScore > 0) vessel.basis.add('nearest presence near the investigation point');
 
     if (parsedTime.timestamp !== null) {
       const timeDifferenceHours = Math.abs(parsedTime.timestamp - satelliteTimestamp) / (60 * 60 * 1000);
@@ -318,7 +333,7 @@ function makeVesselSummaries(
       }
       vessel.maxTemporalScore = Math.max(vessel.maxTemporalScore, temporalScore);
       vessel.hasHourlyTime = true;
-      if (temporalScore > 0) vessel.basis.add('close to observation time');
+      if (temporalScore > 0) vessel.basis.add('presence close to the satellite observation time');
     }
 
     if (vessel.name === null) vessel.name = observation.name;
@@ -331,13 +346,21 @@ function makeVesselSummaries(
     .map((vessel) => {
       const persistenceScore = Math.min(vessel.observationCount / 6, 1);
       if (vessel.observationCount > 1 && persistenceScore > 0) {
-        vessel.basis.add('multiple presence observations');
+        vessel.basis.add('repeated presence observations');
+      }
+      const observationSpreadScore = Math.min(
+        vessel.maximumObservationSeparationKm / radiusKm,
+        1
+      );
+      if (vessel.maximumObservationSeparationKm > 0) {
+        vessel.basis.add('presence observations span multiple grid-cell locations');
       }
       const correlationIndicator = Math.round(
         100 * (
-          0.5 * vessel.maxSpatialScore +
-          0.35 * vessel.maxTemporalScore +
-          0.15 * persistenceScore
+          0.4 * vessel.maxSpatialScore +
+          0.3 * vessel.maxTemporalScore +
+          0.2 * persistenceScore +
+          0.1 * observationSpreadScore
         )
       );
 
@@ -347,10 +370,7 @@ function makeVesselSummaries(
         mmsi: vessel.mmsi,
         type: vessel.type,
         flag: vessel.flag,
-        observationCount: vessel.observationCount,
-        minimumDistanceKm: vessel.minimumDistanceKm,
         closestObservationTime: vessel.closestObservationTime,
-        minimumTemporalDifferenceHours: vessel.minimumTemporalDifferenceHours,
         correlationIndicator,
         locationType: 'grid_cell_center' as const,
         temporalPrecision: vessel.hasHourlyTime ? 'hour' as const : 'date' as const,
@@ -358,13 +378,20 @@ function makeVesselSummaries(
           spatialScore: vessel.maxSpatialScore,
           temporalScore: vessel.maxTemporalScore,
           persistenceScore,
+          observationSpreadScore,
+        },
+        metrics: {
+          observationCount: vessel.observationCount,
+          minimumDistanceKm: vessel.minimumDistanceKm,
+          minimumTemporalDifferenceHours: vessel.minimumTemporalDifferenceHours,
+          maximumObservationSeparationKm: vessel.maximumObservationSeparationKm,
         },
         basis: Array.from(vessel.basis),
       };
     })
     .sort((first, second) =>
       second.correlationIndicator - first.correlationIndicator ||
-      first.minimumDistanceKm - second.minimumDistanceKm
+      first.metrics.minimumDistanceKm - second.metrics.minimumDistanceKm
     );
 }
 
