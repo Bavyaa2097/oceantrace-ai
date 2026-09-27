@@ -139,6 +139,33 @@ function parseObservationDate(row: Record<string, unknown>): ParsedObservationDa
     };
   }
 
+  const hourlyMatch = /^(\d{4}-\d{2}-\d{2}) (\d{2}):(\d{2})(?::(\d{2}))?$/.exec(date);
+  if (hourlyMatch) {
+    const [, calendarDate, hourText, minuteText, secondText] = hourlyMatch;
+    const hour = Number(hourText);
+    const minute = Number(minuteText);
+    const second = Number(secondText ?? 0);
+    const dayStart = Date.parse(`${calendarDate}T00:00:00.000Z`);
+    if (
+      !Number.isFinite(dayStart) ||
+      new Date(dayStart).toISOString().slice(0, 10) !== calendarDate ||
+      hour > 23 || minute > 59 || second > 59
+    ) {
+      return null;
+    }
+
+    const startTimestamp = dayStart + (
+      hour * 60 * 60 * 1000 +
+      minute * 60 * 1000 +
+      second * 1000
+    );
+    return {
+      date,
+      startTimestamp,
+      endTimestamp: startTimestamp + 60 * 60 * 1000,
+    };
+  }
+
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return null;
   const dayStart = Date.parse(`${date}T00:00:00.000Z`);
   if (!Number.isFinite(dayStart) || new Date(dayStart).toISOString().slice(0, 10) !== date) {
