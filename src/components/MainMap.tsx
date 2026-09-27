@@ -2,29 +2,47 @@ import React, { useEffect, useRef } from 'react';
 import L from 'leaflet';
 import { Vessel, SpillIncident } from '../types';
 import { enableMapInteractionOnFocus } from '../utils/leafletInteraction';
+import { AisObservation, AisVesselSummary } from '../services/aisApi';
 
 interface MainMapProps {
-  spillIncident: SpillIncident;
-  vessels: Vessel[];
-  selectedVesselId: string | null;
-  onSelectVessel: (vessel: Vessel) => void;
+  spillIncident?: SpillIncident;
+  vessels?: Vessel[];
+  selectedVesselId?: string | null;
+  onSelectVessel?: (vessel: Vessel) => void;
   showDriftPath?: boolean;
   showOriginZone?: boolean;
   showVessels?: boolean;
   heightClass?: string;
   autoCenterTrigger?: number;
+  liveInvestigation?: {
+    focus: { lat: number; lon: number };
+    radiusKm: number;
+    observations: AisObservation[];
+    vessels: AisVesselSummary[];
+  };
+}
+
+function escapePopupText(value: string | null | undefined): string {
+  return (value ?? '—').replace(/[&<>"']/g, (character) => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;',
+  })[character] ?? character);
 }
 
 export const MainMap: React.FC<MainMapProps> = ({
   spillIncident,
-  vessels,
-  selectedVesselId,
+  vessels = [],
+  selectedVesselId = null,
   onSelectVessel,
   showDriftPath = true,
   showOriginZone = true,
   showVessels = true,
   heightClass = "h-[480px] lg:h-[580px]",
   autoCenterTrigger = 0,
+  liveInvestigation,
 }) => {
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<L.Map | null>(null);
@@ -36,7 +54,9 @@ export const MainMap: React.FC<MainMapProps> = ({
     if (!mapRef.current) {
       // Center map on Lakshadweep Sea oil spill region (10.810 N, 72.360 E)
       const map = L.map(mapContainerRef.current, {
-        center: [10.810, 72.360],
+        center: liveInvestigation
+          ? [liveInvestigation.focus.lat, liveInvestigation.focus.lon]
+          : [10.810, 72.360],
         zoom: 11,
         zoomControl: false,
         attributionControl: true,
@@ -66,6 +86,109 @@ export const MainMap: React.FC<MainMapProps> = ({
     if (!layerGroup) return;
 
     layerGroup.clearLayers();
+
+    if (liveInvestigation) {
+      const { focus, radiusKm, observations, vessels: summaries } = liveInvestigation;
+      const focusPoint: L.LatLngExpression = [focus.lat, focus.lon];
+      const radius = L.circle(focusPoint, {
+        radius: radiusKm * 1000,
+        color: '#38bdf8',
+        fillColor: '#38bdf8',
+        fillOpacity: 0.08,
+        weight: 2,
+      }).addTo(layerGroup);
+      radius.bindPopup(`Investigation search radius: ${radiusKm} km`);
+
+      const focusIcon = L.divIcon({
+        className: 'live-investigation-focus-marker',
+        html: '<div style="white-space:nowrap;border:2px solid #fff;background:#176b87;color:#fff;border-radius:9999px;padding:5px 9px;font:600 11px sans-serif;box-shadow:0 1px 6px #0008">Investigation focus</div>',
+        iconAnchor: [10, 10],
+      });
+      L.marker(focusPoint, { icon: focusIcon })
+        .addTo(layerGroup)
+        .bindPopup(`Investigation focus<br/>Latitude: ${focus.lat}<br/>Longitude: ${focus.lon}`);
+
+      const vesselGroups = new Map<string, AisObservation[]>();
+      observations.forEach((observation, index) => {
+        const identity = observation.id ?? observation.mmsi;
+        const key = identity ? `vessel:${identity}` : `observation:${index}`;
+        const group = vesselGroups.get(key) ?? [];
+        group.push(observation);
+        vesselGroups.set(key, group);
+      });
+
+      const bounds = radius.getBounds();
+      observations.forEach((observation) => {
+        if (
+          Number.isFinite(observation.lat) &&
+          Number.isFinite(observation.lon) &&
+          observation.lat >= -90 && observation.lat <= 90 &&
+          observation.lon >= -180 && observation.lon <= 180
+        ) {
+          bounds.extend([observation.lat, observation.lon]);
+        }
+      });
+
+      vesselGroups.forEach((group) => {
+        const validObservations = group.filter((observation) =>
+          Number.isFinite(observation.lat) &&
+          Number.isFinite(observation.lon) &&
+          observation.lat >= -90 && observation.lat <= 90 &&
+          observation.lon >= -180 && observation.lon <= 180
+        );
+        const representative = [...validObservations].sort((first, second) =>
+          second.date.localeCompare(first.date)
+        )[0];
+        if (!representative) return;
+
+        const vesselSummary = summaries.find((vessel) =>
+          (representative.id !== null && vessel.id === representative.id) ||
+          (representative.mmsi !== null && vessel.mmsi === representative.mmsi)
+        );
+        const distances = group
+          .map((observation) => observation.distanceKm)
+          .filter(Number.isFinite);
+        const minimumDistanceKm = distances.length > 0 ? Math.min(...distances) : null;
+        const label = representative.name ?? representative.mmsi ?? 'Unidentified vessel';
+        const locationGroups = new Map<string, AisObservation[]>();
+        validObservations.forEach((observation) => {
+          const key = `${observation.lat},${observation.lon}`;
+          const locationGroup = locationGroups.get(key) ?? [];
+          locationGroup.push(observation);
+          locationGroups.set(key, locationGroup);
+        });
+
+        locationGroups.forEach((locationGroup) => {
+          const location = locationGroup[0];
+          const marker = L.circleMarker([location.lat, location.lon], {
+            radius: 7,
+            color: '#fff',
+            weight: 1.5,
+            fillColor: '#f0a43a',
+            fillOpacity: 0.95,
+          }).addTo(layerGroup);
+
+          marker.bindPopup(`
+            <div class="font-sans text-xs">
+              <strong>${escapePopupText(label)}</strong>
+              <div>MMSI: ${escapePopupText(representative.mmsi)}</div>
+              <div>Vessel type: ${escapePopupText(representative.type)}</div>
+              <div>Flag: ${escapePopupText(representative.flag)}</div>
+              <div>Observation count: ${vesselSummary?.observationCount ?? group.length}</div>
+              <div>Observations at this grid-cell center: ${locationGroup.length}</div>
+              <div>Minimum distance: ${minimumDistanceKm === null ? '—' : `${minimumDistanceKm.toFixed(1)} km`}</div>
+              <div class="mt-1 text-slate-500">AIS-derived vessel presence · GFW grid-cell center</div>
+            </div>
+          `);
+        });
+      });
+
+      bounds.extend(focusPoint);
+      map.fitBounds(bounds, { padding: [28, 28], maxZoom: 13 });
+      return;
+    }
+
+    if (!spillIncident) return;
 
     // 1. Draw Detected Oil Slick Polygon (10.842° N, 72.431° E)
     const slickPolygon = L.polygon(spillIncident.slickPolygon, {
@@ -198,7 +321,7 @@ export const MainMap: React.FC<MainMapProps> = ({
           .addTo(layerGroup);
 
         marker.on('click', () => {
-          onSelectVessel(vessel);
+          onSelectVessel?.(vessel);
         });
 
         marker.bindPopup(`
@@ -217,7 +340,7 @@ export const MainMap: React.FC<MainMapProps> = ({
         `);
       });
     }
-  }, [spillIncident, vessels, selectedVesselId, showDriftPath, showOriginZone, showVessels, onSelectVessel]);
+  }, [spillIncident, vessels, selectedVesselId, showDriftPath, showOriginZone, showVessels, onSelectVessel, liveInvestigation]);
 
   // Keep page scrolling natural until the user explicitly focuses the map.
   useEffect(() => {
@@ -237,17 +360,37 @@ export const MainMap: React.FC<MainMapProps> = ({
 
   return (
     <div className={`ocean-map relative w-full ${heightClass} rounded-2xl overflow-hidden border border-cyan-500/30 glass-panel shadow-2xl`}>
-      {/* Map Header Overlay */}
-      <div className="absolute top-3 left-14 z-[400] flex items-center gap-2 bg-navy-900/95 backdrop-blur-md px-3 py-1 rounded-lg border border-cyan-500/30 text-xs">
-        <span className="w-2 h-2 rounded-full bg-cyan-400 animate-ping" />
-        <span className="font-mono font-semibold text-slate-100 text-[11px]">SURVEILLANCE RADAR: LAKSHADWEEP SEA (10.842° N, 72.431° E)</span>
-      </div>
+      {liveInvestigation ? (
+        <>
+          <div className="absolute left-14 top-3 z-[400] max-w-[calc(100%-4.5rem)] rounded-lg border border-cyan-500/30 bg-navy-900/95 px-3 py-1 text-[11px] font-semibold text-slate-100 shadow">
+            LIVE INVESTIGATION · {liveInvestigation.observations.length} AIS-derived vessel presence observations
+          </div>
+          <div className="absolute bottom-3 left-3 z-[400] max-w-[calc(100%-1.5rem)] rounded-lg border border-slate-600 bg-navy-900/95 p-3 text-[11px] text-slate-100 shadow">
+            <div className="mb-1 flex items-center gap-2">
+              <span className="h-2.5 w-2.5 rounded-full border border-white bg-[#f0a43a]" />
+              AIS-derived vessel presence
+            </div>
+            <div className="mb-1 flex items-center gap-2">
+              <span className="h-2.5 w-2.5 rounded-full border-2 border-white bg-[#176b87]" />
+              Investigation focus
+            </div>
+            <p className="max-w-sm leading-4 text-slate-300">
+              AIS positions represent GFW grid-cell centers, not exact vessel fixes.
+            </p>
+          </div>
+        </>
+      ) : (
+        <div className="absolute top-3 left-14 z-[400] flex items-center gap-2 bg-navy-900/95 backdrop-blur-md px-3 py-1 rounded-lg border border-cyan-500/30 text-xs">
+          <span className="w-2 h-2 rounded-full bg-cyan-400 animate-ping" />
+          <span className="font-mono font-semibold text-slate-100 text-[11px]">SURVEILLANCE RADAR: LAKSHADWEEP SEA (10.842° N, 72.431° E)</span>
+        </div>
+      )}
 
       {/* Map Container */}
       <div ref={mapContainerRef} className="w-full h-full" />
 
       {/* Map Legend Overlay */}
-      <div className="absolute bottom-3 left-3 z-[400] bg-navy-900/95 backdrop-blur-md p-3 rounded-xl border border-cyan-500/30 text-[10px] font-mono space-y-1 shadow-xl hidden sm:block">
+      {!liveInvestigation && <div className="absolute bottom-3 left-3 z-[400] bg-navy-900/95 backdrop-blur-md p-3 rounded-xl border border-cyan-500/30 text-[10px] font-mono space-y-1 shadow-xl hidden sm:block">
         <div className="text-slate-400 font-bold mb-0.5 border-b border-slate-700/60 pb-0.5">MAP LEGEND</div>
         <div className="flex items-center gap-2">
           <span className="w-2.5 h-2.5 rounded bg-red-500/80 border border-orange-400 inline-block" />
@@ -269,7 +412,7 @@ export const MainMap: React.FC<MainMapProps> = ({
           <span className="w-2 h-2 rounded-full bg-blue-500 inline-block" />
           <span className="text-slate-300">Tracked Vessel Traffic</span>
         </div>
-      </div>
+      </div>}
     </div>
   );
 };

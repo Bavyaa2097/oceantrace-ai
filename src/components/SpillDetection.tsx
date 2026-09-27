@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertTriangle,
   CheckCircle2,
@@ -39,6 +39,7 @@ import {
   SarAnomalyAnalysis,
   SarAnomalyCandidate,
 } from '../services/sarAnomalyDetection';
+import { MainMap } from './MainMap';
 
 interface SpillDetectionProps {
   isDemoMode: boolean;
@@ -634,6 +635,45 @@ export const SpillDetection: React.FC<SpillDetectionProps> = ({
     investigationRadiusValid &&
     aisState === 'success' &&
     aisResult !== null;
+  const liveMapInvestigation = useMemo(() => {
+    if (isDemoMode) return undefined;
+    if (aisResult) {
+      return {
+        focus: {
+          lat: aisResult.investigation.lat,
+          lon: aisResult.investigation.lon,
+        },
+        radiusKm: aisResult.investigation.radiusKm,
+        observations: aisResult.observations,
+        vessels: aisResult.vessels,
+      };
+    }
+    if (
+      candidateFocusStatus !== 'derived' ||
+      !investigationPointValid ||
+      !investigationRadiusValid
+    ) {
+      return undefined;
+    }
+    return {
+      focus: {
+        lat: Number(investigationLat),
+        lon: Number(investigationLon),
+      },
+      radiusKm: Number(searchRadiusKm),
+      observations: [],
+      vessels: [],
+    };
+  }, [
+    isDemoMode,
+    aisResult,
+    candidateFocusStatus,
+    investigationPointValid,
+    investigationRadiusValid,
+    investigationLat,
+    investigationLon,
+    searchRadiusKm,
+  ]);
 
   const stages: Array<{ title: string; detail: string; state: StageState; status: string }> = [
     {
@@ -1220,6 +1260,21 @@ export const SpillDetection: React.FC<SpillDetectionProps> = ({
                   : <Search className="h-4 w-4" />}
                 {aisState === 'loading' ? 'SEARCHING AIS PRESENCE…' : 'FIND AIS VESSEL PRESENCE'}
               </button>
+
+              {liveMapInvestigation && (
+                <section className="space-y-3 border-t border-[var(--ot-border)] pt-5">
+                  <div>
+                    <h3 className="text-sm font-bold text-[var(--ot-text)]">SPATIAL INVESTIGATION MAP</h3>
+                    <p className="mt-1 text-xs text-[var(--ot-text-secondary)]">
+                      Investigation focus, search radius, and returned AIS-derived vessel presence.
+                    </p>
+                  </div>
+                  <MainMap
+                    liveInvestigation={liveMapInvestigation}
+                    heightClass="h-[360px] sm:h-[440px]"
+                  />
+                </section>
+              )}
 
               {aisResult && (
                 <div className="space-y-4 border-t border-[var(--ot-border)] pt-4">

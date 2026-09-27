@@ -120,7 +120,10 @@ export const App: React.FC = () => {
   const handleToggleDemoMode = (demoState: boolean) => {
     setIsDemoMode(demoState);
     if (!demoState) {
-      alert("Live satellite/AIS integrations can be connected during deployment.");
+      setShowAlertModal(false);
+      setSelectedVessel(null);
+      setIsCorrelationOpen(false);
+      setIsDemoRunning(false);
     }
   };
 
@@ -361,7 +364,7 @@ export const App: React.FC = () => {
       )}
 
       {/* High Priority Emergency Alert Banner */}
-      {showAlertModal && (
+      {isDemoMode && showAlertModal && (
         <AlertSystem
           spillIncident={INITIAL_SPILL_INCIDENT}
           onInvestigate={() => {
