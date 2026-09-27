@@ -21,6 +21,12 @@ import {
   getAisCandidates,
 } from '../services/aisApi';
 import {
+  AisCorrelationResponse,
+  AisCorrelationVessel,
+  CorrelationApiError,
+  getAisCorrelation,
+} from '../services/correlationApi';
+import {
   getSatelliteImage,
   SatelliteAcquisition,
   SatelliteApiError,
@@ -65,6 +71,11 @@ function getApiErrorMessage(error: unknown, fallback: string): string {
 function getAisErrorMessage(error: unknown): string {
   if (error instanceof AisApiError) return error.message;
   return 'AIS-derived vessel presence could not be retrieved. Please try again.';
+}
+
+function getCorrelationErrorMessage(error: unknown): string {
+  if (error instanceof CorrelationApiError) return error.message;
+  return 'Spatial and temporal correlation could not be calculated. Please try again.';
 }
 
 function getBoundingBoxCenter(bbox?: SatelliteBoundingBox): { lat: number; lon: number } | null {
@@ -119,14 +130,21 @@ export const SpillDetection: React.FC<SpillDetectionProps> = ({
   const [aisResult, setAisResult] = useState<AisCandidatesResponse | null>(null);
   const [aisError, setAisError] = useState<string | null>(null);
   const [selectedVesselId, setSelectedVesselId] = useState<string | null>(null);
+  const [correlationState, setCorrelationState] = useState<RequestState>('idle');
+  const [correlationResult, setCorrelationResult] = useState<AisCorrelationResponse | null>(null);
+  const [correlationError, setCorrelationError] = useState<string | null>(null);
+  const [selectedCorrelationVesselId, setSelectedCorrelationVesselId] = useState<string | null>(null);
   const requestId = useRef(0);
   const aisRequestId = useRef(0);
+  const correlationRequestId = useRef(0);
   const aisRequestInFlight = useRef(false);
+  const correlationRequestInFlight = useRef(false);
 
   useEffect(() => {
     return () => {
       requestId.current += 1;
       aisRequestId.current += 1;
+      correlationRequestId.current += 1;
     };
   }, []);
 
@@ -137,6 +155,11 @@ export const SpillDetection: React.FC<SpillDetectionProps> = ({
     setAisError(null);
     setSelectedVesselId(null);
     setAisState(aisRequestInFlight.current ? 'loading' : 'idle');
+    correlationRequestId.current += 1;
+    setCorrelationResult(null);
+    setCorrelationError(null);
+    setSelectedCorrelationVesselId(null);
+    setCorrelationState(correlationRequestInFlight.current ? 'loading' : 'idle');
   }, [isDemoMode]);
 
   useEffect(() => {
@@ -194,6 +217,11 @@ export const SpillDetection: React.FC<SpillDetectionProps> = ({
     setAisError(null);
     setSelectedVesselId(null);
     setAisState(aisRequestInFlight.current ? 'loading' : 'idle');
+    correlationRequestId.current += 1;
+    setCorrelationResult(null);
+    setCorrelationError(null);
+    setSelectedCorrelationVesselId(null);
+    setCorrelationState(correlationRequestInFlight.current ? 'loading' : 'idle');
   };
 
   const resetSelectedObservation = () => {
@@ -328,6 +356,11 @@ export const SpillDetection: React.FC<SpillDetectionProps> = ({
     setAisState('loading');
     setAisResult(null);
     setSelectedVesselId(null);
+    correlationRequestId.current += 1;
+    setCorrelationResult(null);
+    setCorrelationError(null);
+    setSelectedCorrelationVesselId(null);
+    setCorrelationState('idle');
 
     try {
       const result = await getAisCandidates({ lat, lon, from, to, radiusKm });
@@ -342,6 +375,78 @@ export const SpillDetection: React.FC<SpillDetectionProps> = ({
       aisRequestInFlight.current = false;
       if (aisRequestId.current !== currentRequestId) {
         setAisState('idle');
+      }
+    }
+  };
+
+  const handleCalculateCorrelation = async () => {
+    setCorrelationError(null);
+    if (isDemoMode || correlationRequestInFlight.current) return;
+    if (!selectedAcquisition || !aisResult || aisState !== 'success') {
+      setCorrelationError('Select an acquisition and complete AIS presence search before calculating correlation.');
+      return;
+    }
+
+    const lat = Number(investigationLat);
+    const lon = Number(investigationLon);
+    const radiusKm = Number(searchRadiusKm);
+    if (
+      investigationLat.trim() === '' ||
+      investigationLon.trim() === '' ||
+      !Number.isFinite(lat) || lat < -90 || lat > 90 ||
+      !Number.isFinite(lon) || lon < -180 || lon > 180 ||
+      searchRadiusKm.trim() === '' ||
+      !Number.isFinite(radiusKm) || radiusKm < 1 || radiusKm > 200
+    ) {
+      setCorrelationError('Enter a valid investigation point and a radius from 1 to 200 km.');
+      return;
+    }
+
+    const satelliteTimestamp = selectedAcquisition.datetime
+      ? Date.parse(selectedAcquisition.datetime)
+      : Number.NaN;
+    if (!Number.isFinite(satelliteTimestamp)) {
+      setCorrelationError('The selected acquisition does not include a valid observation time.');
+      return;
+    }
+
+    const currentRequestId = ++correlationRequestId.current;
+    correlationRequestInFlight.current = true;
+    setCorrelationState('loading');
+    setCorrelationResult(null);
+    setSelectedCorrelationVesselId(null);
+
+    try {
+      const result = await getAisCorrelation({
+        investigationPoint: { lat, lon },
+        satelliteObservationTime: new Date(satelliteTimestamp).toISOString(),
+        radiusKm,
+        from: aisResult.investigation.from,
+        to: aisResult.investigation.to,
+        observations: aisResult.observations.map((observation) => ({
+          id: observation.id,
+          name: observation.name,
+          mmsi: observation.mmsi,
+          type: observation.type,
+          flag: observation.flag,
+          lat: observation.lat,
+          lon: observation.lon,
+          date: observation.date,
+          activityHours: observation.activityHours,
+          locationType: observation.locationType,
+        })),
+      });
+      if (correlationRequestId.current !== currentRequestId) return;
+      setCorrelationResult(result);
+      setCorrelationState('success');
+    } catch (error) {
+      if (correlationRequestId.current !== currentRequestId) return;
+      setCorrelationError(getCorrelationErrorMessage(error));
+      setCorrelationState('error');
+    } finally {
+      correlationRequestInFlight.current = false;
+      if (correlationRequestId.current !== currentRequestId) {
+        setCorrelationState('idle');
       }
     }
   };
@@ -391,6 +496,34 @@ export const SpillDetection: React.FC<SpillDetectionProps> = ({
         .filter((observation) => observation.id === selectedVessel.id)
         .sort((first, second) => first.date.localeCompare(second.date)) ?? []
     : [];
+  const correlationVessels = correlationResult
+    ? [...correlationResult.vessels].slice(0, 10)
+    : [];
+  const selectedCorrelationVessel: AisCorrelationVessel | null = selectedCorrelationVesselId
+    ? correlationResult?.vessels.find((vessel) => vessel.id === selectedCorrelationVesselId) ?? null
+    : null;
+  const investigationPointValid =
+    investigationLat.trim() !== '' &&
+    investigationLon.trim() !== '' &&
+    Number.isFinite(Number(investigationLat)) &&
+    Number(investigationLat) >= -90 &&
+    Number(investigationLat) <= 90 &&
+    Number.isFinite(Number(investigationLon)) &&
+    Number(investigationLon) >= -180 &&
+    Number(investigationLon) <= 180;
+  const investigationRadiusValid =
+    searchRadiusKm.trim() !== '' &&
+    Number.isFinite(Number(searchRadiusKm)) &&
+    Number(searchRadiusKm) >= 1 &&
+    Number(searchRadiusKm) <= 200;
+  const canCalculateCorrelation =
+    !isDemoMode &&
+    selectedAcquisition !== null &&
+    Number.isFinite(selectedAcquisitionTimestamp) &&
+    investigationPointValid &&
+    investigationRadiusValid &&
+    aisState === 'success' &&
+    aisResult !== null;
 
   const stages: Array<{ title: string; detail: string; state: StageState; status: string }> = [
     {
@@ -939,6 +1072,150 @@ export const SpillDetection: React.FC<SpillDetectionProps> = ({
                     Coordinates represent GFW grid-cell centers, not exact AIS fixes. Presence is observational and does not establish responsibility for an event.
                   </p>
                 </div>
+              )}
+
+              {aisResult && (
+                <section className="space-y-4 border-t border-[var(--ot-border)] pt-5">
+                  <div>
+                    <h3 className="text-sm font-bold text-[var(--ot-text)]">SPATIAL / TEMPORAL CORRELATION</h3>
+                    <p className="mt-1 text-xs leading-5 text-[var(--ot-text-secondary)]">
+                      A transparent ordering based on spatial proximity, temporal proximity, and repeated AIS-derived presence. It is not a probability or an assessment of responsibility.
+                    </p>
+                  </div>
+
+                  {correlationError && (
+                    <p role="alert" className="flex items-start gap-2 rounded-lg border border-[#B84E4B]/30 bg-[#B84E4B]/10 p-3 text-xs leading-5 text-[#B84E4B]">
+                      <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                      <span>{correlationError}</span>
+                    </p>
+                  )}
+
+                  <button
+                    type="button"
+                    onClick={() => void handleCalculateCorrelation()}
+                    disabled={!canCalculateCorrelation || correlationState === 'loading'}
+                    className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-[var(--ot-primary)] px-4 py-3 text-sm font-bold text-[var(--ot-primary)] transition-colors hover:bg-[var(--ot-primary-soft)] disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {correlationState === 'loading'
+                      ? <RefreshCw className="h-4 w-4 animate-spin" />
+                      : <Layers className="h-4 w-4" />}
+                    {correlationState === 'loading' ? 'CALCULATING CORRELATION…' : 'CALCULATE CORRELATION'}
+                  </button>
+
+                  {correlationResult && (
+                    <div className="space-y-4">
+                      <h4 className="text-xs font-bold text-[var(--ot-text)]">Correlation analysis complete</h4>
+                      <p className="rounded-lg border border-[var(--ot-border)] bg-[var(--ot-shell)] p-3 text-xs leading-5 text-[var(--ot-text-secondary)]">
+                        {correlationResult.vessels.length > 0
+                          ? 'Correlation indicator calculated from spatial proximity, temporal proximity, and AIS-derived presence persistence.'
+                          : 'No AIS-derived vessel presence was found within the requested spatial and temporal window.'}
+                      </p>
+
+                      <dl className="grid grid-cols-2 gap-3 text-xs sm:grid-cols-3">
+                        <div className="rounded-md border border-[var(--ot-border)] p-3">
+                          <dt className="text-[var(--ot-muted)]">Observations evaluated</dt>
+                          <dd className="mt-1 font-semibold text-[var(--ot-text)]">{correlationResult.observationCount}</dd>
+                        </div>
+                        <div className="rounded-md border border-[var(--ot-border)] p-3">
+                          <dt className="text-[var(--ot-muted)]">Unique vessels</dt>
+                          <dd className="mt-1 font-semibold text-[var(--ot-text)]">{correlationResult.uniqueVesselCount}</dd>
+                        </div>
+                        <div className="rounded-md border border-[var(--ot-border)] p-3">
+                          <dt className="text-[var(--ot-muted)]">Ordering</dt>
+                          <dd className="mt-1 font-semibold text-[var(--ot-text)]">Indicator, then distance</dd>
+                        </div>
+                      </dl>
+
+                      {correlationVessels.length > 0 && (
+                        <div className="overflow-x-auto rounded-lg border border-[var(--ot-border)]">
+                          <table className="w-full min-w-[760px] text-left text-xs">
+                            <thead className="bg-[var(--ot-shell)] text-[var(--ot-text-secondary)]">
+                              <tr>
+                                <th className="px-3 py-2 font-semibold">Vessel</th>
+                                <th className="px-3 py-2 font-semibold">MMSI</th>
+                                <th className="px-3 py-2 font-semibold">Correlation indicator</th>
+                                <th className="px-3 py-2 font-semibold">Minimum distance</th>
+                                <th className="px-3 py-2 font-semibold">Nearest observation</th>
+                                <th className="px-3 py-2 font-semibold">Observation count</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-[var(--ot-border)]">
+                              {correlationVessels.map((vessel) => (
+                                <tr
+                                  key={vessel.id}
+                                  className={selectedCorrelationVesselId === vessel.id ? 'bg-[var(--ot-primary-soft)]' : ''}
+                                >
+                                  <td className="px-3 py-2">
+                                    <button
+                                      type="button"
+                                      onClick={() => setSelectedCorrelationVesselId(vessel.id)}
+                                      className="font-semibold text-[var(--ot-primary)] hover:underline"
+                                    >
+                                      {vessel.name ?? vessel.id}
+                                    </button>
+                                  </td>
+                                  <td className="px-3 py-2 text-[var(--ot-text-secondary)]">{vessel.mmsi ?? '—'}</td>
+                                  <td className="px-3 py-2 font-semibold text-[var(--ot-text)]">{vessel.correlationIndicator}</td>
+                                  <td className="px-3 py-2 text-[var(--ot-text-secondary)]">{formatDistance(vessel.minimumDistanceKm)}</td>
+                                  <td className="px-3 py-2 text-[var(--ot-text-secondary)]">{vessel.closestObservationTime ?? 'Date-level only'}</td>
+                                  <td className="px-3 py-2 text-[var(--ot-text-secondary)]">{vessel.observationCount}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+
+                      {selectedCorrelationVessel && (
+                        <div className="space-y-3 rounded-lg border border-[var(--ot-border)] p-4">
+                          <div>
+                            <h5 className="text-xs font-bold text-[var(--ot-text)]">
+                              {selectedCorrelationVessel.name ?? selectedCorrelationVessel.id}
+                            </h5>
+                            <p className="mt-1 text-xs text-[var(--ot-text-secondary)]">
+                              {[selectedCorrelationVessel.mmsi, selectedCorrelationVessel.type, selectedCorrelationVessel.flag]
+                                .filter(Boolean)
+                                .join(' · ') || 'No additional vessel metadata returned'}
+                            </p>
+                          </div>
+                          <dl className="grid grid-cols-1 gap-3 text-xs sm:grid-cols-3">
+                            <div className="rounded-md bg-[var(--ot-shell)] p-3">
+                              <dt className="text-[var(--ot-muted)]">Spatial factor</dt>
+                              <dd className="mt-1 font-semibold text-[var(--ot-text)]">{selectedCorrelationVessel.factors.spatialScore.toFixed(3)}</dd>
+                            </div>
+                            <div className="rounded-md bg-[var(--ot-shell)] p-3">
+                              <dt className="text-[var(--ot-muted)]">Temporal factor</dt>
+                              <dd className="mt-1 font-semibold text-[var(--ot-text)]">
+                                {selectedCorrelationVessel.factors.temporalScore.toFixed(3)}
+                                {selectedCorrelationVessel.temporalPrecision === 'date' ? ' · date-level only' : ''}
+                              </dd>
+                            </div>
+                            <div className="rounded-md bg-[var(--ot-shell)] p-3">
+                              <dt className="text-[var(--ot-muted)]">Persistence factor</dt>
+                              <dd className="mt-1 font-semibold text-[var(--ot-text)]">{selectedCorrelationVessel.factors.persistenceScore.toFixed(3)}</dd>
+                            </div>
+                          </dl>
+                          <div>
+                            <h6 className="text-xs font-semibold text-[var(--ot-text)]">Basis / explanation</h6>
+                            {selectedCorrelationVessel.basis.length > 0 ? (
+                              <ul className="mt-1 list-inside list-disc text-xs text-[var(--ot-text-secondary)]">
+                                {selectedCorrelationVessel.basis.map((reason) => <li key={reason}>{reason}</li>)}
+                              </ul>
+                            ) : (
+                              <p className="mt-1 text-xs text-[var(--ot-text-secondary)]">No positive factors were available for explanation.</p>
+                            )}
+                          </div>
+                          <p className="text-[11px] text-[var(--ot-muted)]">
+                            Location type: GFW grid-cell center · Temporal precision: {selectedCorrelationVessel.temporalPrecision}
+                          </p>
+                        </div>
+                      )}
+                      <p className="text-[11px] leading-5 text-[var(--ot-muted)]">
+                        Correlation indicator is a transparent OceanTrace heuristic, not a probability or proof of responsibility. AIS presence alone does not establish that a vessel caused an oil spill.
+                      </p>
+                    </div>
+                  )}
+                </section>
               )}
             </section>
           )}
