@@ -13,6 +13,9 @@ interface NavbarProps {
   onLogout: () => void;
   isNightMode: boolean;
   onToggleTheme: () => void;
+  workspaceMode?: boolean;
+  showDesktopNavigation?: boolean;
+  workspaceStatusLabels?: Record<string, string | null>;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -27,6 +30,9 @@ export const Navbar: React.FC<NavbarProps> = ({
   onLogout,
   isNightMode,
   onToggleTheme,
+  workspaceMode = false,
+  showDesktopNavigation = true,
+  workspaceStatusLabels = {},
 }) => {
   const [showProfileMenu, setShowProfileMenu] = useState<boolean>(false);
   const [showMobileMenu, setShowMobileMenu] = useState<boolean>(false);
@@ -68,7 +74,7 @@ export const Navbar: React.FC<NavbarProps> = ({
           </div>
 
           {/* Center Navigation Tabs */}
-          <nav className="hidden md:flex items-center space-x-0.5 overflow-x-auto scrollbar-none py-1">
+          <nav className={`${workspaceMode || !showDesktopNavigation ? 'hidden' : 'hidden md:flex'} items-center space-x-0.5 overflow-x-auto scrollbar-none py-1`}>
             {navTabs.map((tab) => (
               <button
                 key={tab.id}
@@ -79,7 +85,10 @@ export const Navbar: React.FC<NavbarProps> = ({
                     : ''
                 }`}
               >
-                {tab.label}
+                <span className="block">{tab.label}</span>
+                {workspaceStatusLabels[tab.id] && (
+                  <span className="mt-0.5 block text-[9px] opacity-75">{workspaceStatusLabels[tab.id]}</span>
+                )}
               </button>
             ))}
           </nav>
@@ -102,8 +111,8 @@ export const Navbar: React.FC<NavbarProps> = ({
             >
               {showMobileMenu ? <X className="w-4 h-4" /> : <Menu className="w-4 h-4" />}
             </button>
-            {/* Scenario playback */}
-            <button
+            {/* Scenario playback is only available with sample data. */}
+            {isDemoMode && <button
               onClick={onRunDemoScenario}
               disabled={isDemoRunning}
               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-semibold transition-all whitespace-nowrap ${
@@ -114,7 +123,7 @@ export const Navbar: React.FC<NavbarProps> = ({
             >
               <Play className={`w-3.5 h-3.5 ${isDemoRunning ? '' : 'fill-current'}`} />
               <span>{isDemoRunning ? 'Running' : 'Play scenario'}</span>
-            </button>
+            </button>}
 
             {/* Mode Toggle */}
             <button
@@ -197,7 +206,33 @@ export const Navbar: React.FC<NavbarProps> = ({
 
         {/* Mobile Navigation Menu */}
         <div className={`mobile-navigation ${showMobileMenu ? 'is-open' : ''}`}>
-          {navTabs.map((tab) => (
+          {workspaceMode ? (
+            <div className="mobile-workspace-navigation">
+              {[
+                { heading: 'WORKSPACE', ids: ['dashboard'] },
+                { heading: 'INVESTIGATION', ids: ['spill-analysis', 'drift-analysis', 'vessel-intelligence', 'timeline', 'trajectory'] },
+                { heading: 'OUTPUT', ids: ['reports', 'ai-pipeline'] },
+              ].map((section) => (
+                <section key={section.heading}>
+                  <h2>{section.heading}</h2>
+                  <div>
+                    {navTabs.filter((tab) => section.ids.includes(tab.id)).map((tab) => (
+                      <button
+                        key={tab.id}
+                        onClick={() => {
+                          setActiveTab(tab.id);
+                          setShowMobileMenu(false);
+                        }}
+                        className={`nav-tab ${tab.accent} ${activeTab === tab.id ? 'is-active' : ''}`}
+                      >
+                        {tab.label}
+                      </button>
+                    ))}
+                  </div>
+                </section>
+              ))}
+            </div>
+          ) : navTabs.map((tab) => (
             <button
               key={tab.id}
               onClick={() => {
@@ -205,16 +240,14 @@ export const Navbar: React.FC<NavbarProps> = ({
                 setShowMobileMenu(false);
               }}
               className={`nav-tab ${tab.accent} whitespace-nowrap px-2.5 py-1 text-[11px] font-medium rounded-md transition-all ${
-                activeTab === tab.id
-                  ? 'is-active'
-                  : ''
+                activeTab === tab.id ? 'is-active' : ''
               }`}
             >
               {tab.label}
             </button>
           ))}
           <div className="mobile-navigation-actions">
-            <button
+            {isDemoMode && <button
               onClick={() => {
                 onRunDemoScenario();
                 setShowMobileMenu(false);
@@ -224,7 +257,7 @@ export const Navbar: React.FC<NavbarProps> = ({
             >
               <Play className="w-3.5 h-3.5 fill-current" />
               {isDemoRunning ? 'RUNNING...' : 'PLAY SCENARIO'}
-            </button>
+            </button>}
             <button
               onClick={() => {
                 setIsDemoMode(!isDemoMode);

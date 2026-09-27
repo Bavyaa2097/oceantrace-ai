@@ -72,6 +72,20 @@ select {
   font-family: inherit;
 }
 
+input[type="datetime-local"] {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.app-shell main,
+.app-shell main > div,
+.glass-panel,
+.overflow-x-auto {
+  min-width: 0;
+}
+
 button:focus-visible,
 input:focus-visible,
 select:focus-visible {
@@ -442,6 +456,42 @@ select:focus-visible {
     padding-left: 0.75rem !important;
     padding-right: 0.75rem !important;
   }
+}
+
+.mobile-workspace-navigation {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 0.85rem;
+}
+
+.mobile-workspace-navigation section h2 {
+  margin: 0 0 0.35rem;
+  padding-left: 0.25rem;
+  color: var(--ot-muted);
+  font-size: 0.625rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+}
+
+.mobile-workspace-navigation section > div {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.35rem;
+}
+
+.mobile-workspace-navigation .nav-tab {
+  border: 1px solid var(--ot-border);
+  border-radius: 0.5rem;
+  padding: 0.55rem 0.7rem;
+  text-align: left;
+  color: var(--ot-text-secondary);
+  background: var(--ot-card);
+}
+
+.mobile-workspace-navigation .nav-tab.is-active {
+  color: var(--ot-primary);
+  background: var(--ot-primary-soft);
+  border-color: var(--ot-primary);
 }
 
 @media (min-width: 768px) and (max-width: 1023px) {

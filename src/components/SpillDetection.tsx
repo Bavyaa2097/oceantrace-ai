@@ -48,6 +48,43 @@ import { MainMap } from './MainMap';
 interface SpillDetectionProps {
   isDemoMode: boolean;
   onNavigateToMap: () => void;
+  onContinueToDrift: () => void;
+  workspaceTab?: 'dashboard' | 'spill-analysis' | 'drift-analysis' | 'vessel-intelligence';
+  resetRequestKey?: number;
+  onStatusChange?: (status: LiveInvestigationStatus) => void;
+}
+
+export interface LiveInvestigationStatus {
+  started: boolean;
+  searchStatus: string;
+  acquisitionDatetime: string | null;
+  anomalyCandidateCount: number | null;
+  focus: string | null;
+  aisObservationCount: number | null;
+  aisUniqueVesselCount: number | null;
+  correlationStatus: string;
+  bbox?: SatelliteBoundingBox;
+  from?: string;
+  to?: string;
+  acquisition?: SatelliteAcquisition | null;
+  imageReady?: boolean;
+  candidates?: SarAnomalyCandidate[] | null;
+  analysisCompletedAt?: string | null;
+  selectedAnomalyCandidateId?: number | null;
+  latitude?: string;
+  longitude?: string;
+  radiusKm?: string;
+  candidateFocusStatus?: 'derived' | 'unavailable' | null;
+  comparisonAcquisition?: SatelliteAcquisition | null;
+  comparisonState?: RequestState;
+  comparison?: SarAnomalyComparison | null;
+  comparisonCompletedAt?: string | null;
+  aisState?: RequestState;
+  aisResult?: AisCandidatesResponse | null;
+  selectedVesselId?: string | null;
+  correlationState?: RequestState;
+  correlationResult?: AisCorrelationResponse | null;
+  correlationCompletedAt?: string | null;
 }
 
 type RequestState = 'idle' | 'loading' | 'success' | 'error';
@@ -153,6 +190,10 @@ function formatDistance(distanceKm: number): string {
 export const SpillDetection: React.FC<SpillDetectionProps> = ({
   isDemoMode,
   onNavigateToMap,
+  onContinueToDrift,
+  workspaceTab = 'spill-analysis',
+  resetRequestKey = 0,
+  onStatusChange,
 }) => {
   const now = new Date();
   const monthAgo = new Date(now);
@@ -174,10 +215,16 @@ export const SpillDetection: React.FC<SpillDetectionProps> = ({
   const [sarComparison, setSarComparison] = useState<SarAnomalyComparison | null>(null);
   const [sarComparisonState, setSarComparisonState] = useState<RequestState>('idle');
   const [sarComparisonError, setSarComparisonError] = useState<string | null>(null);
+  const [sarComparisonCompletedAt, setSarComparisonCompletedAt] = useState<string | null>(null);
   const [localImageUrl, setLocalImageUrl] = useState<string | null>(null);
   const [searchError, setSearchError] = useState<string | null>(null);
   const [imageError, setImageError] = useState<string | null>(null);
   const [localImageName, setLocalImageName] = useState<string | null>(null);
+  const [localImageDimensions, setLocalImageDimensions] = useState<{ width: number; height: number } | null>(null);
+  const [localAnalysis, setLocalAnalysis] = useState<SarAnomalyAnalysis | null>(null);
+  const [localAnalysisState, setLocalAnalysisState] = useState<AnalysisState>('idle');
+  const [localAnalysisError, setLocalAnalysisError] = useState<string | null>(null);
+  const [localImageError, setLocalImageError] = useState<string | null>(null);
   const [investigationLat, setInvestigationLat] = useState('');
   const [investigationLon, setInvestigationLon] = useState('');
   const [selectedAnomalyCandidateId, setSelectedAnomalyCandidateId] = useState<number | null>(null);
@@ -190,6 +237,8 @@ export const SpillDetection: React.FC<SpillDetectionProps> = ({
   const [correlationState, setCorrelationState] = useState<RequestState>('idle');
   const [correlationResult, setCorrelationResult] = useState<AisCorrelationResponse | null>(null);
   const [correlationError, setCorrelationError] = useState<string | null>(null);
+  const [sarAnalysisCompletedAt, setSarAnalysisCompletedAt] = useState<string | null>(null);
+  const [correlationCompletedAt, setCorrelationCompletedAt] = useState<string | null>(null);
   const [selectedCorrelationVesselId, setSelectedCorrelationVesselId] = useState<string | null>(null);
   const requestId = useRef(0);
   const sarAnalysisRequestId = useRef(0);
@@ -199,6 +248,8 @@ export const SpillDetection: React.FC<SpillDetectionProps> = ({
   const correlationRequestId = useRef(0);
   const aisRequestInFlight = useRef(false);
   const correlationRequestInFlight = useRef(false);
+  const localAnalysisRequestId = useRef(0);
+  const handledResetRequest = useRef(resetRequestKey);
 
   useEffect(() => {
     return () => {
@@ -211,30 +262,48 @@ export const SpillDetection: React.FC<SpillDetectionProps> = ({
   }, []);
 
   useEffect(() => {
-    if (!isDemoMode) return;
-    aisRequestId.current += 1;
-    setAisResult(null);
-    setAisError(null);
-    setSelectedVesselId(null);
-    setAisState(aisRequestInFlight.current ? 'loading' : 'idle');
-    correlationRequestId.current += 1;
-    setCorrelationResult(null);
-    setCorrelationError(null);
-    setSelectedCorrelationVesselId(null);
-    setCorrelationState(correlationRequestInFlight.current ? 'loading' : 'idle');
+    if (handledResetRequest.current === resetRequestKey) return;
+    handledResetRequest.current = resetRequestKey;
+    requestId.current += 1;
+    sarAnalysisRequestId.current += 1;
     sarComparisonRequestId.current += 1;
+    aisRequestId.current += 1;
+    correlationRequestId.current += 1;
+    clearAisResults();
+    setBboxFields(DEFAULT_BBOX.map(String));
+    setFromValue(toLocalDateTimeInput(monthAgo));
+    setToValue(toLocalDateTimeInput(now));
+    setAcquisitions([]);
+    setSearchState('idle');
+    setImageState('idle');
+    setSelectedAcquisition(null);
+    setImageUrl(null);
+    setSelectedImageExtent(null);
+    setSarAnalysis(null);
+    setSarAnalysisState('idle');
+    setSarAnalysisError(null);
+    setSarAnalysisCompletedAt(null);
     setComparisonAcquisitionId('');
     setSarComparison(null);
     setSarComparisonError(null);
-    setSarComparisonState(sarComparisonInFlight.current ? 'loading' : 'idle');
-  }, [isDemoMode]);
+    setSarComparisonCompletedAt(null);
+    setSarComparisonState('idle');
+    setSearchError(null);
+    setImageError(null);
+    setInvestigationLat('');
+    setInvestigationLon('');
+    setSelectedAnomalyCandidateId(null);
+    setCandidateFocusStatus(null);
+    setSearchRadiusKm(String(DEFAULT_RADIUS_KM));
+  }, [resetRequestKey]);
 
   useEffect(() => {
     const currentRequestId = ++sarAnalysisRequestId.current;
     setSarAnalysis(null);
     setSarAnalysisError(null);
+    setSarAnalysisCompletedAt(null);
 
-    if (!imageUrl || isDemoMode) {
+    if (!imageUrl) {
       setSarAnalysisState('idle');
       return;
     }
@@ -245,6 +314,7 @@ export const SpillDetection: React.FC<SpillDetectionProps> = ({
         if (sarAnalysisRequestId.current !== currentRequestId) return;
         setSarAnalysis(result);
         setSarAnalysisState('complete');
+        setSarAnalysisCompletedAt(new Date().toISOString());
       })
       .catch((error: unknown) => {
         if (sarAnalysisRequestId.current !== currentRequestId) return;
@@ -259,7 +329,7 @@ export const SpillDetection: React.FC<SpillDetectionProps> = ({
     return () => {
       sarAnalysisRequestId.current += 1;
     };
-  }, [imageUrl, isDemoMode]);
+  }, [imageUrl]);
 
   useEffect(() => {
     return () => {
@@ -270,6 +340,33 @@ export const SpillDetection: React.FC<SpillDetectionProps> = ({
   useEffect(() => {
     return () => {
       if (localImageUrl) URL.revokeObjectURL(localImageUrl);
+    };
+  }, [localImageUrl]);
+
+  useEffect(() => {
+    if (!localImageUrl) {
+      setLocalImageDimensions(null);
+      return;
+    }
+
+    let cancelled = false;
+    const image = new Image();
+    image.src = localImageUrl;
+    void image.decode()
+      .then(() => {
+        if (!cancelled) {
+          setLocalImageDimensions({
+            width: image.naturalWidth,
+            height: image.naturalHeight,
+          });
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setLocalImageError('The selected local image could not be previewed.');
+      });
+
+    return () => {
+      cancelled = true;
     };
   }, [localImageUrl]);
 
@@ -319,6 +416,7 @@ export const SpillDetection: React.FC<SpillDetectionProps> = ({
     correlationRequestId.current += 1;
     setCorrelationResult(null);
     setCorrelationError(null);
+    setCorrelationCompletedAt(null);
     setSelectedCorrelationVesselId(null);
     setCorrelationState(correlationRequestInFlight.current ? 'loading' : 'idle');
   };
@@ -327,6 +425,7 @@ export const SpillDetection: React.FC<SpillDetectionProps> = ({
     sarComparisonRequestId.current += 1;
     setSarComparison(null);
     setSarComparisonError(null);
+    setSarComparisonCompletedAt(null);
     setSarComparisonState(sarComparisonInFlight.current ? 'loading' : 'idle');
   };
 
@@ -534,6 +633,7 @@ export const SpillDetection: React.FC<SpillDetectionProps> = ({
       );
       setSarComparison(comparison);
       setSarComparisonState('success');
+      setSarComparisonCompletedAt(new Date().toISOString());
     } catch (error) {
       if (sarComparisonRequestId.current !== requestIdForComparison) return;
       setSarComparisonError(getApiErrorMessage(error, 'SAR observations could not be compared.'));
@@ -645,6 +745,7 @@ export const SpillDetection: React.FC<SpillDetectionProps> = ({
     correlationRequestInFlight.current = true;
     setCorrelationState('loading');
     setCorrelationResult(null);
+    setCorrelationCompletedAt(null);
     setSelectedCorrelationVesselId(null);
 
     try {
@@ -670,6 +771,7 @@ export const SpillDetection: React.FC<SpillDetectionProps> = ({
       if (correlationRequestId.current !== currentRequestId) return;
       setCorrelationResult(result);
       setCorrelationState('success');
+      setCorrelationCompletedAt(new Date().toISOString());
     } catch (error) {
       if (correlationRequestId.current !== currentRequestId) return;
       setCorrelationError(getCorrelationErrorMessage(error));
@@ -684,10 +786,57 @@ export const SpillDetection: React.FC<SpillDetectionProps> = ({
 
   const handleLocalImage = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
-    if (!file) return;
+    if (!file) {
+      setLocalImageError('Select an image file to continue.');
+      return;
+    }
+    if (!['image/png', 'image/jpeg', 'image/webp'].includes(file.type)) {
+      setLocalImageError('Choose a PNG, JPEG, or WebP image.');
+      event.target.value = '';
+      return;
+    }
+    localAnalysisRequestId.current += 1;
+    setLocalImageError(null);
+    setLocalAnalysisError(null);
+    setLocalAnalysis(null);
+    setLocalAnalysisState('idle');
+    setLocalImageDimensions(null);
     setLocalImageUrl(URL.createObjectURL(file));
     setLocalImageName(file.name);
     event.target.value = '';
+  };
+
+  const handleAnalyzeLocalImage = async () => {
+    if (!localImageUrl) {
+      setLocalImageError('Select an image file before running analysis.');
+      return;
+    }
+    const requestIdForAnalysis = ++localAnalysisRequestId.current;
+    setLocalAnalysisError(null);
+    setLocalAnalysisState('analyzing');
+    try {
+      const result = await analyzeSarImage(localImageUrl);
+      if (localAnalysisRequestId.current !== requestIdForAnalysis) return;
+      setLocalAnalysis(result);
+      setLocalAnalysisState('complete');
+    } catch (error) {
+      if (localAnalysisRequestId.current !== requestIdForAnalysis) return;
+      setLocalAnalysisError(
+        error instanceof Error ? error.message : 'Local image analysis could not be completed.',
+      );
+      setLocalAnalysisState('error');
+    }
+  };
+
+  const handleRemoveLocalImage = () => {
+    localAnalysisRequestId.current += 1;
+    setLocalImageUrl(null);
+    setLocalImageName(null);
+    setLocalImageDimensions(null);
+    setLocalAnalysis(null);
+    setLocalAnalysisState('idle');
+    setLocalAnalysisError(null);
+    setLocalImageError(null);
   };
 
   const currentBounds = bboxFields.map(Number);
@@ -809,6 +958,99 @@ export const SpillDetection: React.FC<SpillDetectionProps> = ({
     investigationLon,
     searchRadiusKm,
   ]);
+  const showSpillWorkspace = workspaceTab === 'spill-analysis';
+  const showDriftWorkspace = workspaceTab === 'drift-analysis';
+  const showVesselWorkspace = workspaceTab === 'vessel-intelligence';
+
+  useEffect(() => {
+    if (isDemoMode || !onStatusChange) return;
+    const started =
+      searchState !== 'idle' ||
+      selectedAcquisition !== null ||
+      imageState !== 'idle' ||
+      investigationPointValid ||
+      aisResult !== null ||
+      correlationResult !== null;
+    onStatusChange({
+      started,
+      searchStatus: searchState === 'idle'
+        ? 'Not searched'
+        : searchState === 'loading'
+          ? 'Searching catalogue'
+          : searchState === 'success'
+            ? `${acquisitions.length} acquisitions returned`
+            : 'Catalogue search failed',
+      acquisitionDatetime: selectedAcquisition?.datetime ?? null,
+      anomalyCandidateCount: sarAnalysisState === 'complete' && sarAnalysis
+        ? sarAnalysis.candidates.length
+        : null,
+      focus: investigationPointValid
+        ? `${Number(investigationLat).toFixed(5)}, ${Number(investigationLon).toFixed(5)}`
+        : null,
+      aisObservationCount: aisResult?.observationCount ?? null,
+      aisUniqueVesselCount: aisResult?.uniqueVesselCount ?? null,
+      correlationStatus: correlationState === 'success'
+        ? 'Complete'
+        : correlationState === 'loading'
+          ? 'Calculating'
+          : correlationState === 'error'
+            ? 'Unavailable'
+            : 'Not calculated',
+      bbox: currentBounds as SatelliteBoundingBox,
+      from: fromValue,
+      to: toValue,
+      acquisition: selectedAcquisition,
+      imageReady: imageState === 'success',
+      candidates: sarAnalysisState === 'complete' ? sarAnalysis?.candidates ?? null : null,
+      analysisCompletedAt: sarAnalysisCompletedAt,
+      selectedAnomalyCandidateId,
+      latitude: investigationLat,
+      longitude: investigationLon,
+      radiusKm: searchRadiusKm,
+      candidateFocusStatus,
+      comparisonAcquisition,
+      comparisonState: sarComparisonState,
+      comparison: sarComparison,
+      comparisonCompletedAt: sarComparisonCompletedAt,
+      aisState,
+      aisResult,
+      selectedVesselId: selectedVesselId ?? selectedCorrelationVesselId,
+      correlationState,
+      correlationResult,
+      correlationCompletedAt,
+    });
+  }, [
+    isDemoMode,
+    onStatusChange,
+    searchState,
+    acquisitions.length,
+    selectedAcquisition,
+    imageState,
+    sarAnalysisState,
+    sarAnalysis,
+    investigationPointValid,
+    investigationLat,
+    investigationLon,
+    aisResult,
+    correlationResult,
+    correlationState,
+    currentBounds.join(','),
+    fromValue,
+    toValue,
+    imageState,
+    sarAnalysisCompletedAt,
+    selectedAnomalyCandidateId,
+    candidateFocusStatus,
+    searchRadiusKm,
+    comparisonAcquisition,
+    sarComparisonState,
+    sarComparison,
+    sarComparisonCompletedAt,
+    aisState,
+    selectedVesselId,
+    selectedCorrelationVesselId,
+    correlationCompletedAt,
+  ]);
 
   const stages: Array<{ title: string; detail: string; state: StageState; status: string }> = [
     {
@@ -854,8 +1096,8 @@ export const SpillDetection: React.FC<SpillDetectionProps> = ({
   ];
 
   return (
-    <div className="mx-auto max-w-7xl space-y-6">
-      <section className="glass-panel rounded-xl border p-5 sm:p-6">
+    <div className="mx-auto w-full min-w-0 max-w-none space-y-6">
+      {showSpillWorkspace ? <section className="glass-panel rounded-xl border p-5 sm:p-6">
         <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
           <div>
             <div className="flex flex-wrap items-center gap-2">
@@ -873,10 +1115,38 @@ export const SpillDetection: React.FC<SpillDetectionProps> = ({
             </p>
           </div>
         </div>
-      </section>
+      </section> : showDriftWorkspace ? (
+        <section className="glass-panel rounded-xl border p-4 sm:p-5">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="inline-flex items-center gap-1.5 rounded-md border border-[var(--ot-border)] bg-[var(--ot-shell)] px-2 py-1 text-xs font-semibold text-[var(--ot-text-secondary)]">
+              <MapPin className="h-3.5 w-3.5" />
+              DRIFT &amp; ORIGIN
+            </span>
+            <span className="rounded-md border border-[var(--ot-border)] px-2 py-1 text-xs font-medium text-[var(--ot-text-secondary)]">LIVE MODE</span>
+          </div>
+          <h1 className="mt-2 text-lg font-bold text-[var(--ot-text)]">Selected anomaly and investigation focus</h1>
+          <p className="mt-1 text-sm text-[var(--ot-text-secondary)]">
+            Review the selected candidate, its derived geographic focus, and the comparison observation.
+          </p>
+        </section>
+      ) : showVesselWorkspace ? (
+        <section className="glass-panel rounded-xl border p-4 sm:p-5">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="inline-flex items-center gap-1.5 rounded-md border border-[#3C8D63]/25 bg-[#E7F2EB] px-2 py-1 text-xs font-semibold text-[#2C704D]">
+              <MapPin className="h-3.5 w-3.5" />
+              VESSEL INVESTIGATION
+            </span>
+            <span className="rounded-md border border-[var(--ot-border)] px-2 py-1 text-xs font-medium text-[var(--ot-text-secondary)]">LIVE MODE</span>
+          </div>
+          <h1 className="mt-2 text-lg font-bold text-[var(--ot-text)]">AIS-derived vessel presence</h1>
+          <p className="mt-1 text-sm text-[var(--ot-text-secondary)]">
+            Search vessel-presence observations and review their spatial and temporal relationship to the selected SAR observation.
+          </p>
+        </section>
+      ) : null}
 
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
-        <div className="space-y-6 lg:col-span-5">
+      <div className={`grid min-w-0 grid-cols-1 gap-6 ${showSpillWorkspace ? 'lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)]' : ''}`}>
+        {showSpillWorkspace && <div className="min-w-0 space-y-6">
           <section className="glass-panel rounded-xl border p-5 sm:p-6">
             <h2 className="flex items-center gap-2 text-sm font-bold text-[var(--ot-text)]">
               <Satellite className="h-4 w-4 text-[var(--ot-primary)]" />
@@ -887,7 +1157,7 @@ export const SpillDetection: React.FC<SpillDetectionProps> = ({
                 <legend className="text-xs font-semibold text-[var(--ot-text-secondary)]">
                   Area of Interest · Bounding box
                 </legend>
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid min-w-0 grid-cols-1 gap-3 sm:grid-cols-2">
                   {[
                     ['minLon', 'Minimum longitude'],
                     ['minLat', 'Minimum latitude'],
@@ -907,14 +1177,14 @@ export const SpillDetection: React.FC<SpillDetectionProps> = ({
                           setBboxFields(next);
                           resetSelectedObservation();
                         }}
-                        className="w-full rounded-md border border-[var(--ot-border)] bg-[var(--ot-card)] px-3 py-2 text-sm text-[var(--ot-text)]"
+                        className="w-full min-w-0 rounded-md border border-[var(--ot-border)] bg-[var(--ot-card)] px-3 py-2 text-sm text-[var(--ot-text)]"
                       />
                     </label>
                   ))}
                 </div>
               </fieldset>
 
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <div className="grid min-w-0 grid-cols-1 gap-3">
                 <label className="space-y-1 text-[11px] text-[var(--ot-muted)]">
                   <span>From date/time</span>
                   <input
@@ -925,7 +1195,7 @@ export const SpillDetection: React.FC<SpillDetectionProps> = ({
                       setFromValue(event.target.value);
                       resetSelectedObservation();
                     }}
-                    className="w-full rounded-md border border-[var(--ot-border)] bg-[var(--ot-card)] px-3 py-2 text-sm text-[var(--ot-text)]"
+                    className="w-full min-w-0 max-w-full rounded-md border border-[var(--ot-border)] bg-[var(--ot-card)] px-3 py-2 text-sm text-[var(--ot-text)]"
                   />
                 </label>
                 <label className="space-y-1 text-[11px] text-[var(--ot-muted)]">
@@ -938,7 +1208,7 @@ export const SpillDetection: React.FC<SpillDetectionProps> = ({
                       setToValue(event.target.value);
                       resetSelectedObservation();
                     }}
-                    className="w-full rounded-md border border-[var(--ot-border)] bg-[var(--ot-card)] px-3 py-2 text-sm text-[var(--ot-text)]"
+                    className="w-full min-w-0 max-w-full rounded-md border border-[var(--ot-border)] bg-[var(--ot-card)] px-3 py-2 text-sm text-[var(--ot-text)]"
                   />
                 </label>
               </div>
@@ -949,7 +1219,7 @@ export const SpillDetection: React.FC<SpillDetectionProps> = ({
                 </p>
               )}
 
-              {searchError && (
+              {!isDemoMode && searchError && (
                 <p role="alert" className="flex items-start gap-2 rounded-lg border border-[#B84E4B]/30 bg-[#B84E4B]/10 p-3 text-xs leading-5 text-[#B84E4B]">
                   <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
                   <span>{searchError}</span>
@@ -975,7 +1245,11 @@ export const SpillDetection: React.FC<SpillDetectionProps> = ({
               </h2>
               <span className="text-[10px] font-medium text-[var(--ot-muted)]">No simulated processing</span>
             </div>
-            <ol className="mt-4 space-y-2">
+            {isDemoMode ? (
+              <p className="mt-4 rounded-lg border border-[var(--ot-border)] bg-[var(--ot-shell)] p-3 text-xs leading-5 text-[var(--ot-text-secondary)]">
+                Live investigation progress is retained and hidden while Demo Mode is active.
+              </p>
+            ) : <ol className="mt-4 space-y-2">
               {stages.map((stage, index) => (
                 <li
                   key={stage.title}
@@ -998,34 +1272,38 @@ export const SpillDetection: React.FC<SpillDetectionProps> = ({
                   <span className="shrink-0 text-[10px] font-semibold">{stage.status}</span>
                 </li>
               ))}
-            </ol>
+            </ol>}
           </section>
 
           <section className="glass-panel rounded-xl border p-5 sm:p-6">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <h2 className="text-sm font-bold text-[var(--ot-text)]">ACQUISITIONS FOUND</h2>
-              {searchState === 'success' && (
+              {!isDemoMode && searchState === 'success' && (
                 <span className="rounded-full bg-[var(--ot-primary-soft)] px-2.5 py-1 text-xs font-semibold text-[var(--ot-primary)]">
                   {acquisitions.length} {acquisitions.length === 1 ? 'acquisition' : 'acquisitions'}
                 </span>
               )}
             </div>
 
-            {searchState === 'idle' && (
+            {isDemoMode ? (
+              <p className="mt-3 rounded-lg border border-[var(--ot-border)] bg-[var(--ot-shell)] p-3 text-xs leading-5 text-[var(--ot-text-secondary)]">
+                Live catalogue results are retained. Switch to Live mode to resume this investigation.
+              </p>
+            ) : searchState === 'idle' && (
               <p className="mt-3 text-xs leading-5 text-[var(--ot-text-secondary)]">
                 Set an area and time range, then search to retrieve real catalogue records.
               </p>
             )}
-            {searchState === 'success' && acquisitions.length === 0 && (
+            {!isDemoMode && searchState === 'success' && acquisitions.length === 0 && (
               <p className="mt-3 rounded-lg border border-[var(--ot-border)] bg-[var(--ot-shell)] p-3 text-xs text-[var(--ot-text-secondary)]">
                 No Sentinel-1 GRD acquisitions were returned for this area and time range.
               </p>
             )}
-            {searchState === 'error' && !searchError && (
+            {!isDemoMode && searchState === 'error' && !searchError && (
               <p className="mt-3 text-xs text-[var(--ot-text-secondary)]">Catalogue search failed.</p>
             )}
 
-            {acquisitions.length > 0 && (
+            {!isDemoMode && acquisitions.length > 0 && (
               <div className="mt-4 space-y-3">
                 {acquisitions.map((acquisition, index) => {
                   const isSelected = selectedAcquisition === acquisition;
@@ -1088,9 +1366,10 @@ export const SpillDetection: React.FC<SpillDetectionProps> = ({
               </div>
             )}
           </section>
-        </div>
+        </div>}
 
-        <div className="space-y-6 lg:col-span-7">
+        <div className="min-w-0 space-y-6">
+          {showSpillWorkspace && <>
           <section className="glass-panel space-y-4 rounded-xl border p-5 sm:p-6">
             <div className="flex flex-col justify-between gap-2 border-b border-[var(--ot-border)] pb-3 sm:flex-row sm:items-center">
               <div>
@@ -1099,7 +1378,7 @@ export const SpillDetection: React.FC<SpillDetectionProps> = ({
                   Sentinel-1 GRD · VV grayscale backscatter visualization
                 </p>
               </div>
-              {selectedAcquisition?.datetime && (
+              {!isDemoMode && selectedAcquisition?.datetime && (
                 <div className="text-xs text-[var(--ot-text-secondary)]">
                   <span className="font-semibold text-[var(--ot-text)]">OBSERVATION TIME</span>
                   <span className="ml-2">{formatAcquisitionDate(selectedAcquisition.datetime)}</span>
@@ -1108,7 +1387,12 @@ export const SpillDetection: React.FC<SpillDetectionProps> = ({
             </div>
 
             <div className="relative flex min-h-[320px] w-full items-center justify-center overflow-hidden rounded-lg border border-[#3B4650] bg-[#171B20] p-3 sm:min-h-[440px]">
-              {imageUrl ? (
+              {isDemoMode ? (
+                <div className="flex max-w-md flex-col items-center gap-3 text-center text-[#B2BCC5]">
+                  <ImageIcon className="h-10 w-10 text-[#8996A1]" />
+                  <p className="text-sm">Live SAR observations remain stored. Switch to Live mode to review them.</p>
+                </div>
+              ) : imageUrl ? (
                 <>
                   <div
                     className="relative mx-auto w-full max-w-[520px] max-h-[520px]"
@@ -1184,7 +1468,7 @@ export const SpillDetection: React.FC<SpillDetectionProps> = ({
               )}
             </div>
 
-            {imageUrl && (
+            {imageUrl && !isDemoMode && (
               <div className="flex flex-col justify-between gap-3 rounded-lg border border-[var(--ot-border)] bg-[var(--ot-shell)] p-3 sm:flex-row sm:items-center">
                 <p className="text-xs leading-5 text-[var(--ot-text-secondary)]">
                   Observation constrained to the selected catalogue acquisition time and available Sentinel-1 metadata.
@@ -1291,7 +1575,19 @@ export const SpillDetection: React.FC<SpillDetectionProps> = ({
             </section>
           )}
 
-          {imageUrl && !isDemoMode && selectedAcquisition && (
+          <div className="flex justify-end">
+            <button
+              type="button"
+              onClick={onContinueToDrift}
+              disabled={!selectedAcquisition}
+              className="inline-flex items-center gap-2 rounded-md bg-[var(--ot-primary)] px-4 py-2.5 text-xs font-semibold text-white hover:bg-[var(--ot-primary-dark)] disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              Continue to Drift &amp; Origin
+            </button>
+          </div>
+          </>}
+
+          {showDriftWorkspace && imageUrl && !isDemoMode && selectedAcquisition && (
             <section className="glass-panel space-y-4 rounded-xl border p-5 sm:p-6">
               <div>
                 <h2 className="text-sm font-bold text-[var(--ot-text)]">MULTI-OBSERVATION SAR COMPARISON</h2>
@@ -1426,31 +1722,22 @@ export const SpillDetection: React.FC<SpillDetectionProps> = ({
               )}
             </section>
           )}
-
-          {selectedAcquisition && !isDemoMode && (
-            <section className="glass-panel space-y-5 rounded-xl border p-5 sm:p-6">
-              <div className="flex flex-col justify-between gap-2 border-b border-[var(--ot-border)] pb-3 sm:flex-row sm:items-start">
-                <div>
-                  <h2 className="flex items-center gap-2 text-sm font-bold text-[var(--ot-text)]">
-                    <MapPin className="h-4 w-4 text-[var(--ot-primary)]" />
-                    INVESTIGATION FOCUS
-                  </h2>
-                  <p className="mt-1 text-xs text-[var(--ot-text-secondary)]">
-                    Set the point to examine for AIS-derived vessel presence. This is not automatically a spill location.
-                  </p>
-                </div>
-                <a
-                  href="https://globalfishingwatch.org"
-                  target="_blank"
-                  rel="noreferrer"
-                  className="inline-flex shrink-0 items-center gap-1 text-xs font-medium text-[var(--ot-primary)] hover:underline"
-                >
-                  Powered by Global Fishing Watch
-                  <ExternalLink className="h-3.5 w-3.5" />
-                </a>
-              </div>
-
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+          {showDriftWorkspace && !isDemoMode && (
+            <section className="glass-panel space-y-3 rounded-xl border p-4 sm:p-5">
+              <h2 className="text-sm font-bold text-[var(--ot-text)]">SELECTED INVESTIGATION FOCUS</h2>
+              <p className="text-xs text-[var(--ot-text-secondary)]">
+                Selected anomaly: {sarAnalysis?.candidates.find((candidate) => candidate.id === selectedAnomalyCandidateId)
+                  ? `Candidate ${selectedAnomalyCandidateId}`
+                  : 'None selected'}
+              </p>
+              <p className="text-xs text-[var(--ot-text-secondary)]">
+                {candidateFocusStatus === 'derived'
+                  ? 'Derived from selected SAR anomaly candidate'
+                  : candidateFocusStatus === 'unavailable'
+                    ? 'Geographic focus unavailable for this observation'
+                    : 'Enter coordinates manually or select a SAR anomaly candidate.'}
+              </p>
+              <div className="grid min-w-0 grid-cols-1 gap-3 text-xs sm:grid-cols-3">
                 <label className="space-y-1 text-[11px] text-[var(--ot-muted)]">
                   <span>Investigation point · Latitude</span>
                   <input
@@ -1504,30 +1791,58 @@ export const SpillDetection: React.FC<SpillDetectionProps> = ({
                   />
                 </label>
               </div>
+            </section>
+          )}
 
-              {candidateFocusStatus === 'derived' && (
-                <p className="text-xs font-medium text-[var(--ot-primary)]">
-                  Derived from selected SAR anomaly candidate
-                </p>
-              )}
-              {candidateFocusStatus === 'unavailable' && (
-                <p className="text-xs text-[var(--ot-text-secondary)]">
-                  Geographic focus unavailable for this observation
-                </p>
+          {showVesselWorkspace && !isDemoMode && (
+            <section className="glass-panel space-y-5 rounded-xl border p-5 sm:p-6">
+              <div className="flex flex-col justify-between gap-2 border-b border-[var(--ot-border)] pb-3 sm:flex-row sm:items-start">
+                <div>
+                  <h2 className="flex items-center gap-2 text-sm font-bold text-[var(--ot-text)]">
+                    <MapPin className="h-4 w-4 text-[var(--ot-primary)]" />
+                    INVESTIGATION FOCUS
+                  </h2>
+                  <p className="mt-1 text-xs text-[var(--ot-text-secondary)]">
+                    AIS search uses the focus set in Drift &amp; Origin. This is not automatically a spill location.
+                  </p>
+                </div>
+              </div>
+              {investigationPointValid && investigationRadiusValid ? (
+                <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-[var(--ot-border)] bg-[var(--ot-shell)] p-3">
+                  <p className="text-xs font-medium text-[var(--ot-text)]">
+                    Focus: {Number(investigationLat).toFixed(4)} {Number(investigationLat) < 0 ? 'S' : 'N'}, {Number(investigationLon).toFixed(4)} {Number(investigationLon) < 0 ? 'W' : 'E'} · Radius: {searchRadiusKm} km
+                  </p>
+                  <button type="button" onClick={onContinueToDrift} className="text-xs font-semibold text-[var(--ot-primary)] hover:underline">
+                    Edit in Drift &amp; Origin
+                  </button>
+                </div>
+              ) : (
+                <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-[var(--ot-border)] bg-[var(--ot-shell)] p-3">
+                  <p className="text-xs text-[var(--ot-text-secondary)]">
+                    Set an investigation focus in Drift &amp; Origin to search AIS vessel presence.
+                  </p>
+                  <button type="button" onClick={onContinueToDrift} className="text-xs font-semibold text-[var(--ot-primary)] hover:underline">
+                    Edit in Drift &amp; Origin
+                  </button>
+                </div>
               )}
 
-              {!getBoundingBoxCenter(selectedAcquisition.bbox) && (
-                <p className="text-xs text-[var(--ot-text-secondary)]">
-                  This catalogue record has no valid bounding box for an initial point. Enter the investigation point manually.
-                </p>
-              )}
+              <a
+                href="https://globalfishingwatch.org"
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-1 text-xs font-medium text-[var(--ot-primary)] hover:underline"
+              >
+                Powered by Global Fishing Watch
+                <ExternalLink className="h-3.5 w-3.5" />
+              </a>
 
               <div className="flex flex-col gap-2 rounded-lg border border-[var(--ot-border)] bg-[var(--ot-shell)] p-3 text-xs text-[var(--ot-text-secondary)]">
                 <span className="font-semibold text-[var(--ot-text)]">Observation time window</span>
                 {aisWindowFrom && aisWindowTo ? (
                   <span>{formatAcquisitionDate(aisWindowFrom)} – {formatAcquisitionDate(aisWindowTo)} (±6 hours from selected acquisition)</span>
                 ) : (
-                  <span>A valid observation time is required on the selected acquisition.</span>
+                  <span>{selectedAcquisition ? 'A valid observation time is required on the selected acquisition.' : 'Select a Sentinel-1 acquisition in Spill Analysis before searching AIS presence.'}</span>
                 )}
               </div>
 
@@ -1541,7 +1856,7 @@ export const SpillDetection: React.FC<SpillDetectionProps> = ({
               <button
                 type="button"
                 onClick={() => void handleFindAisCandidates()}
-                disabled={aisState === 'loading'}
+                disabled={!selectedAcquisition || !investigationPointValid || !investigationRadiusValid || aisState === 'loading'}
                 className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-[var(--ot-primary)] px-4 py-3 text-sm font-bold text-white transition-colors hover:bg-[var(--ot-primary-dark)] disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {aisState === 'loading'
@@ -1850,28 +2165,142 @@ export const SpillDetection: React.FC<SpillDetectionProps> = ({
             </section>
           )}
 
-          <section className="glass-panel rounded-xl border p-5 sm:p-6">
-            <div className="flex items-center gap-2">
+          {showSpillWorkspace && <section className="glass-panel rounded-xl border p-5 sm:p-6">
+            <div className="flex flex-wrap items-center gap-2">
               <Upload className="h-4 w-4 text-[var(--ot-muted)]" />
               <h2 className="text-sm font-bold text-[var(--ot-text)]">LOCAL IMAGE TESTING</h2>
-              <span className="text-[10px] text-[var(--ot-muted)]">Secondary · not a live satellite observation</span>
             </div>
-            <label className="mt-3 flex cursor-pointer flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-[var(--ot-border)] bg-[var(--ot-shell)] p-5 text-center hover:border-[var(--ot-primary)]">
-              <input type="file" accept="image/png,image/jpeg,image/webp" onChange={handleLocalImage} className="sr-only" />
-              <Upload className="h-5 w-5 text-[var(--ot-muted)]" />
-              <span className="text-xs font-semibold text-[var(--ot-text-secondary)]">Choose a local image for display testing</span>
-              <span className="text-[10px] text-[var(--ot-muted)]">This file is not uploaded or analyzed.</span>
-            </label>
-            {localImageUrl && (
-              <div className="mt-4 flex flex-col gap-3 rounded-lg border border-[var(--ot-border)] p-3 sm:flex-row sm:items-center">
-                <img src={localImageUrl} alt="Local testing image preview" className="h-20 w-28 rounded bg-[#171B20] object-contain" />
-                <div>
-                  <p className="text-xs font-semibold text-[var(--ot-text)]">{localImageName}</p>
-                  <p className="mt-1 text-[11px] text-[var(--ot-text-secondary)]">Local preview only. No detection or classification is performed.</p>
+            <p className="mt-2 text-xs leading-5 text-[var(--ot-text-secondary)]">
+              This image is local test input and is not a Sentinel-1 observation. It stays in this browser and is never sent to Copernicus or GFW.
+            </p>
+            <div className="mt-4 flex flex-wrap gap-2">
+              <label className="inline-flex cursor-pointer items-center gap-2 rounded-md border border-[var(--ot-border)] px-3 py-2 text-xs font-semibold text-[var(--ot-text)] hover:border-[var(--ot-primary)]">
+                <Upload className="h-4 w-4" />
+                {localImageUrl ? 'Replace image' : 'Select local image'}
+                <input
+                  type="file"
+                  accept="image/png,image/jpeg,image/webp"
+                  onChange={handleLocalImage}
+                  className="sr-only"
+                />
+              </label>
+              <button
+                type="button"
+                onClick={() => void handleAnalyzeLocalImage()}
+                disabled={!localImageUrl || localAnalysisState === 'analyzing'}
+                className="rounded-md bg-[var(--ot-primary)] px-3 py-2 text-xs font-semibold text-white hover:bg-[var(--ot-primary-dark)] disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {localAnalysisState === 'analyzing' ? 'Analyzing local image…' : 'Analyze local image'}
+              </button>
+              {localImageUrl && (
+                <button
+                  type="button"
+                  onClick={handleRemoveLocalImage}
+                  className="rounded-md border border-[var(--ot-border)] px-3 py-2 text-xs font-semibold text-[var(--ot-text-secondary)] hover:border-[var(--ot-danger)]"
+                >
+                  Remove image
+                </button>
+              )}
+            </div>
+
+            {localImageError && <p role="alert" className="mt-3 text-xs text-[var(--ot-danger)]">{localImageError}</p>}
+
+            {localImageUrl ? (
+              <div className="mt-4 space-y-3">
+                <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-[var(--ot-text-secondary)]">
+                  <span className="font-semibold text-[var(--ot-text)]">{localImageName}</span>
+                  {localImageDimensions && <span>{localImageDimensions.width} × {localImageDimensions.height} px</span>}
                 </div>
+                <div className="relative mx-auto w-full max-w-4xl overflow-hidden rounded-lg border border-[#3B4650] bg-[#171B20]"
+                  style={{ aspectRatio: localImageDimensions ? `${localImageDimensions.width} / ${localImageDimensions.height}` : '16 / 9' }}>
+                  <img src={localImageUrl} alt="Selected local test image" className="absolute inset-0 h-full w-full object-contain" />
+                  {localAnalysis && (
+                    <svg
+                      aria-label="Local image SAR surface-anomaly candidate regions"
+                      className="pointer-events-none absolute inset-0 h-full w-full"
+                      viewBox={`0 0 ${localAnalysis.width} ${localAnalysis.height}`}
+                      preserveAspectRatio="none"
+                    >
+                      {localAnalysis.candidates.map((candidate) => (
+                        <g key={candidate.id}>
+                          <rect
+                            x={candidate.boundingBox.minX}
+                            y={candidate.boundingBox.minY}
+                            width={candidate.boundingBox.width}
+                            height={candidate.boundingBox.height}
+                            fill="#E7A94B"
+                            fillOpacity="0.12"
+                            stroke="#F1BE68"
+                            strokeWidth={Math.max(1.5, localAnalysis.width / 300)}
+                          />
+                          <text
+                            x={candidate.boundingBox.minX + 3}
+                            y={Math.max(12, candidate.boundingBox.minY - 4)}
+                            fill="#FFF4DD"
+                            fontSize={Math.max(11, localAnalysis.width / 45)}
+                            fontWeight="700"
+                            paintOrder="stroke"
+                            stroke="#171B20"
+                            strokeWidth="3"
+                          >
+                            {candidate.id}
+                          </text>
+                        </g>
+                      ))}
+                    </svg>
+                  )}
+                </div>
+                {localAnalysisError && (
+                  <p role="alert" className="rounded-md border border-[var(--ot-danger)]/30 bg-[var(--ot-danger)]/10 p-3 text-xs text-[var(--ot-danger)]">
+                    {localAnalysisError}
+                  </p>
+                )}
+                {localAnalysisState === 'complete' && localAnalysis && (
+                  localAnalysis.candidates.length === 0 ? (
+                    <p className="rounded-md border border-[var(--ot-border)] bg-[var(--ot-shell)] p-3 text-xs text-[var(--ot-text-secondary)]">
+                      No candidate anomalies detected in this local image.
+                    </p>
+                  ) : (
+                    <div className="max-w-full overflow-x-auto rounded-lg border border-[var(--ot-border)]">
+                      <table className="w-full min-w-[640px] text-left text-xs">
+                        <thead className="bg-[var(--ot-shell)] text-[var(--ot-text-secondary)]">
+                          <tr>
+                            <th className="px-3 py-2">Candidate</th>
+                            <th className="px-3 py-2">Bounding box</th>
+                            <th className="px-3 py-2">Pixel area</th>
+                            <th className="px-3 py-2">Centroid</th>
+                            <th className="px-3 py-2">Mean intensity</th>
+                            <th className="px-3 py-2">Contrast</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-[var(--ot-border)]">
+                          {localAnalysis.candidates.map((candidate) => (
+                            <tr key={candidate.id}>
+                              <td className="px-3 py-2 font-semibold">Candidate {candidate.id}</td>
+                              <td className="px-3 py-2">{candidate.boundingBox.minX},{candidate.boundingBox.minY}–{candidate.boundingBox.maxX},{candidate.boundingBox.maxY}</td>
+                              <td className="px-3 py-2">{candidate.pixelArea}</td>
+                              <td className="px-3 py-2">{candidate.centroid.x.toFixed(1)}, {candidate.centroid.y.toFixed(1)}</td>
+                              <td className="px-3 py-2">{candidate.meanIntensity.toFixed(1)} / 255</td>
+                              <td className="px-3 py-2">{(candidate.contrast * 100).toFixed(1)}%</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )
+                )}
+                {localAnalysisState === 'complete' && (
+                  <p className="text-[11px] text-[var(--ot-muted)]">
+                    Local image surface-pattern candidates are not confirmed oil spills.
+                  </p>
+                )}
+              </div>
+            ) : (
+              <div className="mt-4 rounded-lg border border-dashed border-[var(--ot-border)] bg-[var(--ot-shell)] p-6 text-center text-sm text-[var(--ot-text-secondary)]">
+                No local image selected.
               </div>
             )}
-          </section>
+          </section>}
         </div>
       </div>
     </div>
