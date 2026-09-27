@@ -6,6 +6,10 @@ export interface SatelliteSearchInput {
   to: string;
 }
 
+export interface SatelliteImageInput extends SatelliteSearchInput {
+  acquisitionId: string;
+}
+
 export interface SatelliteAcquisitionProperties {
   constellation?: string;
   platform?: string;
@@ -109,7 +113,7 @@ export async function searchSatelliteAcquisitions(
   return payload.items;
 }
 
-export async function getSatelliteImage(input: SatelliteSearchInput): Promise<Blob> {
+export async function getSatelliteImage(input: SatelliteImageInput): Promise<Blob> {
   const response = await postJson('/api/satellite/image', input);
   if (!response.ok) throw await readError(response);
 

@@ -3,6 +3,11 @@ interface ImageRequest {
   body?: unknown;
 }
 
+interface CatalogueFeature {
+  id?: unknown;
+  properties?: unknown;
+}
+
 interface ErrorResponse {
   ok: false;
   error: string;
@@ -18,6 +23,7 @@ interface ResponseWriter {
 
 const TOKEN_URL =
   'https://identity.dataspace.copernicus.eu/auth/realms/CDSE/protocol/openid-connect/token';
+const CATALOG_URL = 'https://sh.dataspace.copernicus.eu/catalog/v1/search';
 const PROCESS_URL = 'https://sh.dataspace.copernicus.eu/process/v1';
 const AUTH_TIMEOUT_MS = 10_000;
 const PROCESS_TIMEOUT_MS = 30_000;
@@ -67,6 +73,29 @@ function parseIsoDateTime(value: unknown): number | null {
     offsetHour > 23 || offsetMinute > 59
   ) {
     return null;
+  }
+
+  function normalizeOrbitDirection(value: unknown): 'ASCENDING' | 'DESCENDING' | undefined {
+    if (typeof value !== 'string') return undefined;
+    const direction = value.toUpperCase();
+    return direction === 'ASCENDING' || direction === 'DESCENDING' ? direction : undefined;
+  }
+
+  function normalizePolarization(value: unknown): string | undefined {
+    const validValues = ['DV', 'DH', 'SV', 'SH', 'HH', 'HV', 'VV', 'VH'];
+    if (typeof value === 'string' && validValues.includes(value.toUpperCase())) {
+      return value.toUpperCase();
+    }
+
+    if (!Array.isArray(value) || !value.every((band) => typeof band === 'string')) return undefined;
+    const bands = new Set(value.map((band: string) => band.toUpperCase()));
+    if (bands.has('VV') && bands.has('VH')) return 'DV';
+    if (bands.has('HH') && bands.has('HV')) return 'DH';
+    if (bands.has('VV')) return 'VV';
+    if (bands.has('VH')) return 'VH';
+    if (bands.has('HH')) return 'HH';
+    if (bands.has('HV')) return 'HV';
+    return undefined;
   }
 
   const timestamp = Date.parse(value);
@@ -120,7 +149,17 @@ export default async function handler(req: ImageRequest, res: ResponseWriter): P
     return;
   }
 
-  const { bbox, from, to } = requestBody;
+  const { acquisitionId, bbox, from, to } = requestBody;
+  if (
+    typeof acquisitionId !== 'string' ||
+    acquisitionId.trim().length === 0 ||
+    acquisitionId.length > 512 ||
+    /[\u0000-\u001f\u007f]/.test(acquisitionId)
+  ) {
+    sendError(res, 400, 'acquisitionId must be a non-empty catalogue item ID');
+    return;
+  }
+
   if (
     !Array.isArray(bbox) ||
     bbox.length !== 4 ||
@@ -183,7 +222,76 @@ export default async function handler(req: ImageRequest, res: ResponseWriter): P
     return;
   }
 
+  let selectedProperties: Record<string, unknown>;
+  let selectedDatetime: string;
   try {
+    const catalogueResponse = await fetchWithTimeout(
+      CATALOG_URL,
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          ids: [acquisitionId],
+          bbox,
+          datetime: `${from}/${to}`,
+          collections: ['sentinel-1-grd'],
+          limit: 1,
+        }),
+      },
+      PROCESS_TIMEOUT_MS
+    );
+
+    if (!catalogueResponse.ok) {
+      sendError(res, 502, 'Copernicus catalogue verification failed');
+      return;
+    }
+
+    const cataloguePayload: unknown = await catalogueResponse.json();
+    const features =
+      isRecord(cataloguePayload) && Array.isArray(cataloguePayload.features)
+        ? cataloguePayload.features as CatalogueFeature[]
+        : [];
+    const feature = features.find((item) => isRecord(item) && item.id === acquisitionId);
+    if (!feature || !isRecord(feature.properties)) {
+      sendError(res, 404, 'Selected acquisition was not found in the requested area and time range');
+      return;
+    }
+
+    const datetime = feature.properties.datetime;
+    const selectedTimestamp = parseIsoDateTime(datetime);
+    if (selectedTimestamp === null || selectedTimestamp < fromTimestamp || selectedTimestamp > toTimestamp) {
+      sendError(res, 502, 'Copernicus catalogue returned invalid acquisition metadata');
+      return;
+    }
+
+    selectedProperties = feature.properties;
+    selectedDatetime = new Date(selectedTimestamp).toISOString();
+  } catch {
+    sendError(res, 502, 'Copernicus catalogue verification failed');
+    return;
+  }
+
+  try {
+    const dataFilter: Record<string, unknown> = {
+      timeRange: { from: selectedDatetime, to: selectedDatetime },
+      mosaickingOrder: 'leastRecent',
+    };
+    const acquisitionMode = selectedProperties['sar:instrument_mode'];
+    if (typeof acquisitionMode === 'string') {
+      dataFilter.acquisitionMode = acquisitionMode;
+    }
+
+    const orbitDirection = normalizeOrbitDirection(selectedProperties['sat:orbit_state']);
+    if (orbitDirection) dataFilter.orbitDirection = orbitDirection;
+
+    const polarization = normalizePolarization(
+      selectedProperties['s1:polarization'] ?? selectedProperties['sar:polarizations']
+    );
+    if (polarization) dataFilter.polarization = polarization;
+
     const processResponse = await fetchWithTimeout(
       PROCESS_URL,
       {
@@ -199,9 +307,7 @@ export default async function handler(req: ImageRequest, res: ResponseWriter): P
             data: [
               {
                 type: 'sentinel-1-grd',
-                dataFilter: {
-                  timeRange: { from, to },
-                },
+                dataFilter,
               },
             ],
           },

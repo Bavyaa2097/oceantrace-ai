@@ -173,6 +173,13 @@ export const SpillDetection: React.FC<SpillDetectionProps> = ({
 
   const handleSelectAcquisition = async (acquisition: SatelliteAcquisition) => {
     if (isDemoMode) return;
+    if (!acquisition.id) {
+      setSelectedAcquisition(acquisition);
+      setImageUrl(null);
+      setImageState('error');
+      setImageError('This catalogue record does not include an acquisition ID, so its image cannot be requested.');
+      return;
+    }
     const searchInput = validateParameters();
     if (!searchInput) return;
 
@@ -190,7 +197,10 @@ export const SpillDetection: React.FC<SpillDetectionProps> = ({
     };
 
     try {
-      const imageBlob = await getSatelliteImage(imageInput);
+      const imageBlob = await getSatelliteImage({
+        ...imageInput,
+        acquisitionId: acquisition.id,
+      });
       if (requestId.current !== currentRequestId) return;
       setImageUrl(URL.createObjectURL(imageBlob));
       setImageState('success');
@@ -529,7 +539,7 @@ export const SpillDetection: React.FC<SpillDetectionProps> = ({
             {imageUrl && (
               <div className="flex flex-col justify-between gap-3 rounded-lg border border-[var(--ot-border)] bg-[var(--ot-shell)] p-3 sm:flex-row sm:items-center">
                 <p className="text-xs leading-5 text-[var(--ot-text-secondary)]">
-                  SAR observation loaded. Oil-slick classification is a separate processing stage.
+                  SAR observation loaded. Processing is constrained by the selected catalogue ID, acquisition time and available metadata filters. Sentinel Hub does not accept a catalogue item ID directly, so exact scene identity cannot be guaranteed when multiple source scenes share those filters. Oil-slick classification is a separate processing stage.
                 </p>
                 <button
                   type="button"
