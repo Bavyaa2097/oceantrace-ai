@@ -266,7 +266,7 @@ export const App: React.FC = () => {
         {/* SPILL ANALYSIS TAB */}
         {activeTab === 'spill-analysis' && (
           <SpillDetection
-            spillIncident={INITIAL_SPILL_INCIDENT}
+            isDemoMode={isDemoMode}
             onNavigateToMap={() => setActiveTab('dashboard')}
           />
         )}
