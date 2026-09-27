@@ -148,19 +148,39 @@ export default async function handler(req: VesselsRequest, res: ResponseWriter):
   }
 
   const bboxParameter = getSingleQueryValue(req.query, 'bbox');
+  const regionIdParameter = getSingleQueryValue(req.query, 'regionId');
   const fromParameter = getSingleQueryValue(req.query, 'from');
   const toParameter = getSingleQueryValue(req.query, 'to');
+  const regionId =
+    regionIdParameter !== null && /^\d+$/.test(regionIdParameter)
+      ? Number(regionIdParameter)
+      : null;
+  if (
+    regionIdParameter !== null &&
+    (regionId === null || !Number.isSafeInteger(regionId) || regionId <= 0)
+  ) {
+    res.status(400).json({
+      ok: false,
+      service: SERVICE,
+      error: 'invalid_region_id',
+    });
+    return;
+  }
+
   const bboxValues = bboxParameter?.split(',').map((coordinate) => Number(coordinate));
   if (
-    !bboxValues ||
-    bboxValues.length !== 4 ||
-    bboxValues.some((coordinate) => !Number.isFinite(coordinate)) ||
-    bboxValues[0] < -180 || bboxValues[0] > 180 ||
-    bboxValues[2] < -180 || bboxValues[2] > 180 ||
-    bboxValues[1] < -90 || bboxValues[1] > 90 ||
-    bboxValues[3] < -90 || bboxValues[3] > 90 ||
-    bboxValues[0] >= bboxValues[2] ||
-    bboxValues[1] >= bboxValues[3]
+    regionId === null &&
+    (
+      !bboxValues ||
+      bboxValues.length !== 4 ||
+      bboxValues.some((coordinate) => !Number.isFinite(coordinate)) ||
+      bboxValues[0] < -180 || bboxValues[0] > 180 ||
+      bboxValues[2] < -180 || bboxValues[2] > 180 ||
+      bboxValues[1] < -90 || bboxValues[1] > 90 ||
+      bboxValues[3] < -90 || bboxValues[3] > 90 ||
+      bboxValues[0] >= bboxValues[2] ||
+      bboxValues[1] >= bboxValues[3]
+    )
   ) {
     res.status(400).json({
       ok: false,
@@ -193,33 +213,54 @@ export default async function handler(req: VesselsRequest, res: ResponseWriter):
 
   const startDate = toUtcDate(fromTimestamp);
   const lastRequestedDate = toUtcDate(toTimestamp);
-  const endExclusive = new Date(`${lastRequestedDate}T00:00:00.000Z`);
-  endExclusive.setUTCDate(endExclusive.getUTCDate() + 1);
-  const endDate = endExclusive.toISOString().slice(0, 10);
-  const [minLon, minLat, maxLon, maxLat] = bboxValues;
-  const geojson = {
-    type: 'Feature',
-    properties: {},
-    geometry: {
-      type: 'Polygon',
-      coordinates: [[
-        [minLon, minLat],
-        [maxLon, minLat],
-        [maxLon, maxLat],
-        [minLon, maxLat],
-        [minLon, minLat],
-      ]],
-    },
-  };
+  let endDate = lastRequestedDate;
+  if (regionId === null || startDate === endDate) {
+    const endExclusive = new Date(`${lastRequestedDate}T00:00:00.000Z`);
+    endExclusive.setUTCDate(endExclusive.getUTCDate() + 1);
+    endDate = endExclusive.toISOString().slice(0, 10);
+  }
+
+  const geojson = bboxValues
+    ? {
+        type: 'Feature',
+        properties: {},
+        geometry: {
+          type: 'Polygon',
+          coordinates: [[
+            [bboxValues[0], bboxValues[1]],
+            [bboxValues[2], bboxValues[1]],
+            [bboxValues[2], bboxValues[3]],
+            [bboxValues[0], bboxValues[3]],
+            [bboxValues[0], bboxValues[1]],
+          ]],
+        },
+      }
+    : null;
 
   const url = new URL(GFW_URL);
   url.searchParams.set('datasets[0]', DATASET);
+  if (regionId !== null) {
+    url.searchParams.set('region-id', String(regionId));
+    url.searchParams.set('region-dataset', 'public-eez-areas');
+  }
   url.searchParams.set('date-range', `${startDate},${endDate}`);
   url.searchParams.set('temporal-resolution', 'HOURLY');
   url.searchParams.set('spatial-resolution', 'HIGH');
   url.searchParams.set('spatial-aggregation', 'false');
   url.searchParams.set('group-by', 'VESSEL_ID');
   url.searchParams.set('format', 'JSON');
+
+  let requestBody: Record<string, unknown>;
+  if (regionId !== null) {
+    requestBody = {
+      region: {
+        dataset: 'public-eez-areas',
+        id: regionId,
+      },
+    };
+  } else {
+    requestBody = { geojson: geojson! };
+  }
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
@@ -231,7 +272,7 @@ export default async function handler(req: VesselsRequest, res: ResponseWriter):
         Authorization: `Bearer ${token}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ geojson }),
+      body: JSON.stringify(requestBody),
       signal: controller.signal,
     });
 
