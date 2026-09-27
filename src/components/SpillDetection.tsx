@@ -3,13 +3,23 @@ import {
   AlertTriangle,
   CheckCircle2,
   Clock3,
+  ExternalLink,
   Eye,
   Image as ImageIcon,
   Layers,
+  MapPin,
   RefreshCw,
   Satellite,
+  Search,
   Upload,
 } from 'lucide-react';
+import {
+  AisApiError,
+  AisCandidatesResponse,
+  AisObservation,
+  AisVesselSummary,
+  getAisCandidates,
+} from '../services/aisApi';
 import {
   getSatelliteImage,
   SatelliteAcquisition,
@@ -28,6 +38,8 @@ type RequestState = 'idle' | 'loading' | 'success' | 'error';
 type StageState = 'pending' | 'active' | 'complete';
 
 const DEFAULT_BBOX: SatelliteBoundingBox = [72.0, 10.0, 72.8, 11.2];
+const DEFAULT_RADIUS_KM = 25;
+const AIS_TIME_WINDOW_MS = 6 * 60 * 60 * 1000;
 
 function toLocalDateTimeInput(date: Date): string {
   const localDate = new Date(date.getTime() - date.getTimezoneOffset() * 60_000);
@@ -50,6 +62,36 @@ function getApiErrorMessage(error: unknown, fallback: string): string {
   return error.message || fallback;
 }
 
+function getAisErrorMessage(error: unknown): string {
+  if (error instanceof AisApiError) return error.message;
+  return 'AIS-derived vessel presence could not be retrieved. Please try again.';
+}
+
+function getBoundingBoxCenter(bbox?: SatelliteBoundingBox): { lat: number; lon: number } | null {
+  if (
+    !bbox ||
+    bbox.length !== 4 ||
+    bbox.some((coordinate) => !Number.isFinite(coordinate)) ||
+    bbox[0] < -180 || bbox[0] > 180 ||
+    bbox[2] < -180 || bbox[2] > 180 ||
+    bbox[1] < -90 || bbox[1] > 90 ||
+    bbox[3] < -90 || bbox[3] > 90 ||
+    bbox[0] >= bbox[2] ||
+    bbox[1] >= bbox[3]
+  ) {
+    return null;
+  }
+
+  return {
+    lat: (bbox[1] + bbox[3]) / 2,
+    lon: (bbox[0] + bbox[2]) / 2,
+  };
+}
+
+function formatDistance(distanceKm: number): string {
+  return `${distanceKm.toFixed(1)} km`;
+}
+
 export const SpillDetection: React.FC<SpillDetectionProps> = ({
   isDemoMode,
   onNavigateToMap,
@@ -70,13 +112,32 @@ export const SpillDetection: React.FC<SpillDetectionProps> = ({
   const [searchError, setSearchError] = useState<string | null>(null);
   const [imageError, setImageError] = useState<string | null>(null);
   const [localImageName, setLocalImageName] = useState<string | null>(null);
+  const [investigationLat, setInvestigationLat] = useState('');
+  const [investigationLon, setInvestigationLon] = useState('');
+  const [searchRadiusKm, setSearchRadiusKm] = useState(String(DEFAULT_RADIUS_KM));
+  const [aisState, setAisState] = useState<RequestState>('idle');
+  const [aisResult, setAisResult] = useState<AisCandidatesResponse | null>(null);
+  const [aisError, setAisError] = useState<string | null>(null);
+  const [selectedVesselId, setSelectedVesselId] = useState<string | null>(null);
   const requestId = useRef(0);
+  const aisRequestId = useRef(0);
+  const aisRequestInFlight = useRef(false);
 
   useEffect(() => {
     return () => {
       requestId.current += 1;
+      aisRequestId.current += 1;
     };
   }, []);
+
+  useEffect(() => {
+    if (!isDemoMode) return;
+    aisRequestId.current += 1;
+    setAisResult(null);
+    setAisError(null);
+    setSelectedVesselId(null);
+    setAisState(aisRequestInFlight.current ? 'loading' : 'idle');
+  }, [isDemoMode]);
 
   useEffect(() => {
     return () => {
@@ -127,8 +188,17 @@ export const SpillDetection: React.FC<SpillDetectionProps> = ({
     };
   };
 
+  const clearAisResults = () => {
+    aisRequestId.current += 1;
+    setAisResult(null);
+    setAisError(null);
+    setSelectedVesselId(null);
+    setAisState(aisRequestInFlight.current ? 'loading' : 'idle');
+  };
+
   const resetSelectedObservation = () => {
     requestId.current += 1;
+    clearAisResults();
     setSelectedAcquisition(null);
     setImageUrl(null);
     setImageState('idle');
@@ -156,6 +226,7 @@ export const SpillDetection: React.FC<SpillDetectionProps> = ({
     setImageUrl(null);
     setImageState('idle');
     setImageError(null);
+    clearAisResults();
     const currentRequestId = ++requestId.current;
     setSearchState('loading');
 
@@ -173,6 +244,12 @@ export const SpillDetection: React.FC<SpillDetectionProps> = ({
 
   const handleSelectAcquisition = async (acquisition: SatelliteAcquisition) => {
     if (isDemoMode) return;
+    if (aisRequestInFlight.current) return;
+    clearAisResults();
+    const center = getBoundingBoxCenter(acquisition.bbox);
+    setInvestigationLat(center ? String(center.lat) : '');
+    setInvestigationLon(center ? String(center.lon) : '');
+    setSearchRadiusKm(String(DEFAULT_RADIUS_KM));
     if (!acquisition.id) {
       setSelectedAcquisition(acquisition);
       setImageUrl(null);
@@ -211,6 +288,64 @@ export const SpillDetection: React.FC<SpillDetectionProps> = ({
     }
   };
 
+  const handleFindAisCandidates = async () => {
+    setAisError(null);
+
+    if (isDemoMode) return;
+    if (!selectedAcquisition) {
+      setAisError('Select a Sentinel-1 acquisition before searching AIS-derived vessel presence.');
+      return;
+    }
+    if (aisRequestInFlight.current) return;
+
+    const lat = Number(investigationLat);
+    const lon = Number(investigationLon);
+    const radiusKm = Number(searchRadiusKm);
+    if (
+      investigationLat.trim() === '' ||
+      investigationLon.trim() === '' ||
+      !Number.isFinite(lat) || lat < -90 || lat > 90 ||
+      !Number.isFinite(lon) || lon < -180 || lon > 180 ||
+      searchRadiusKm.trim() === '' ||
+      !Number.isFinite(radiusKm) || radiusKm < 1 || radiusKm > 200
+    ) {
+      setAisError('Enter a valid investigation point and a search radius from 1 to 200 km.');
+      return;
+    }
+
+    const acquisitionTimestamp = selectedAcquisition.datetime
+      ? Date.parse(selectedAcquisition.datetime)
+      : Number.NaN;
+    if (!Number.isFinite(acquisitionTimestamp)) {
+      setAisError('This catalogue acquisition does not include a valid observation time for the AIS search.');
+      return;
+    }
+
+    const from = new Date(acquisitionTimestamp - AIS_TIME_WINDOW_MS).toISOString();
+    const to = new Date(acquisitionTimestamp + AIS_TIME_WINDOW_MS).toISOString();
+    const currentRequestId = ++aisRequestId.current;
+    aisRequestInFlight.current = true;
+    setAisState('loading');
+    setAisResult(null);
+    setSelectedVesselId(null);
+
+    try {
+      const result = await getAisCandidates({ lat, lon, from, to, radiusKm });
+      if (aisRequestId.current !== currentRequestId) return;
+      setAisResult(result);
+      setAisState('success');
+    } catch (error) {
+      if (aisRequestId.current !== currentRequestId) return;
+      setAisError(getAisErrorMessage(error));
+      setAisState('error');
+    } finally {
+      aisRequestInFlight.current = false;
+      if (aisRequestId.current !== currentRequestId) {
+        setAisState('idle');
+      }
+    }
+  };
+
   const handleLocalImage = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
@@ -233,6 +368,29 @@ export const SpillDetection: React.FC<SpillDetectionProps> = ({
     !Number.isNaN(new Date(fromValue).getTime()) &&
     !Number.isNaN(new Date(toValue).getTime()) &&
     new Date(fromValue).getTime() <= new Date(toValue).getTime();
+
+  const selectedAcquisitionTimestamp = selectedAcquisition?.datetime
+    ? Date.parse(selectedAcquisition.datetime)
+    : Number.NaN;
+  const aisWindowFrom = Number.isFinite(selectedAcquisitionTimestamp)
+    ? new Date(selectedAcquisitionTimestamp - AIS_TIME_WINDOW_MS).toISOString()
+    : null;
+  const aisWindowTo = Number.isFinite(selectedAcquisitionTimestamp)
+    ? new Date(selectedAcquisitionTimestamp + AIS_TIME_WINDOW_MS).toISOString()
+    : null;
+  const nearestVessels = aisResult
+    ? [...aisResult.vessels]
+        .sort((first, second) => first.minimumDistanceKm - second.minimumDistanceKm)
+        .slice(0, 10)
+    : [];
+  const selectedVessel: AisVesselSummary | null = selectedVesselId
+    ? aisResult?.vessels.find((vessel) => vessel.id === selectedVesselId) ?? null
+    : null;
+  const selectedVesselObservations: AisObservation[] = selectedVessel
+    ? aisResult?.observations
+        .filter((observation) => observation.id === selectedVessel.id)
+        .sort((first, second) => first.date.localeCompare(second.date)) ?? []
+    : [];
 
   const stages: Array<{ title: string; detail: string; state: StageState; status: string }> = [
     {
@@ -469,7 +627,7 @@ export const SpillDetection: React.FC<SpillDetectionProps> = ({
                         <button
                           type="button"
                           onClick={() => void handleSelectAcquisition(acquisition)}
-                          disabled={isDemoMode || imageState === 'loading'}
+                          disabled={isDemoMode || imageState === 'loading' || aisState === 'loading'}
                           className="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-[var(--ot-border)] px-2.5 py-2 text-[10px] font-semibold text-[var(--ot-primary)] hover:bg-[var(--ot-primary-soft)] disabled:cursor-not-allowed disabled:opacity-50"
                         >
                           {imageState === 'loading' && isSelected
@@ -553,6 +711,237 @@ export const SpillDetection: React.FC<SpillDetectionProps> = ({
               </div>
             )}
           </section>
+
+          {selectedAcquisition && !isDemoMode && (
+            <section className="glass-panel space-y-5 rounded-xl border p-5 sm:p-6">
+              <div className="flex flex-col justify-between gap-2 border-b border-[var(--ot-border)] pb-3 sm:flex-row sm:items-start">
+                <div>
+                  <h2 className="flex items-center gap-2 text-sm font-bold text-[var(--ot-text)]">
+                    <MapPin className="h-4 w-4 text-[var(--ot-primary)]" />
+                    INVESTIGATION FOCUS
+                  </h2>
+                  <p className="mt-1 text-xs text-[var(--ot-text-secondary)]">
+                    Set the point to examine for AIS-derived vessel presence. This is not automatically a spill location.
+                  </p>
+                </div>
+                <a
+                  href="https://globalfishingwatch.org"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex shrink-0 items-center gap-1 text-xs font-medium text-[var(--ot-primary)] hover:underline"
+                >
+                  Powered by Global Fishing Watch
+                  <ExternalLink className="h-3.5 w-3.5" />
+                </a>
+              </div>
+
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                <label className="space-y-1 text-[11px] text-[var(--ot-muted)]">
+                  <span>Investigation point · Latitude</span>
+                  <input
+                    aria-label="Investigation point latitude"
+                    type="number"
+                    min="-90"
+                    max="90"
+                    step="any"
+                    value={investigationLat}
+                    onChange={(event) => {
+                      clearAisResults();
+                      setInvestigationLat(event.target.value);
+                    }}
+                    className="w-full rounded-md border border-[var(--ot-border)] bg-[var(--ot-card)] px-3 py-2 text-sm text-[var(--ot-text)]"
+                  />
+                </label>
+                <label className="space-y-1 text-[11px] text-[var(--ot-muted)]">
+                  <span>Investigation point · Longitude</span>
+                  <input
+                    aria-label="Investigation point longitude"
+                    type="number"
+                    min="-180"
+                    max="180"
+                    step="any"
+                    value={investigationLon}
+                    onChange={(event) => {
+                      clearAisResults();
+                      setInvestigationLon(event.target.value);
+                    }}
+                    className="w-full rounded-md border border-[var(--ot-border)] bg-[var(--ot-card)] px-3 py-2 text-sm text-[var(--ot-text)]"
+                  />
+                </label>
+                <label className="space-y-1 text-[11px] text-[var(--ot-muted)]">
+                  <span>Search radius (km)</span>
+                  <input
+                    aria-label="AIS search radius in kilometers"
+                    type="number"
+                    min="1"
+                    max="200"
+                    step="any"
+                    value={searchRadiusKm}
+                    onChange={(event) => {
+                      clearAisResults();
+                      setSearchRadiusKm(event.target.value);
+                    }}
+                    className="w-full rounded-md border border-[var(--ot-border)] bg-[var(--ot-card)] px-3 py-2 text-sm text-[var(--ot-text)]"
+                  />
+                </label>
+              </div>
+
+              {!getBoundingBoxCenter(selectedAcquisition.bbox) && (
+                <p className="text-xs text-[var(--ot-text-secondary)]">
+                  This catalogue record has no valid bounding box for an initial point. Enter the investigation point manually.
+                </p>
+              )}
+
+              <div className="flex flex-col gap-2 rounded-lg border border-[var(--ot-border)] bg-[var(--ot-shell)] p-3 text-xs text-[var(--ot-text-secondary)]">
+                <span className="font-semibold text-[var(--ot-text)]">Observation time window</span>
+                {aisWindowFrom && aisWindowTo ? (
+                  <span>{formatAcquisitionDate(aisWindowFrom)} – {formatAcquisitionDate(aisWindowTo)} (±6 hours from selected acquisition)</span>
+                ) : (
+                  <span>A valid observation time is required on the selected acquisition.</span>
+                )}
+              </div>
+
+              {aisError && (
+                <p role="alert" className="flex items-start gap-2 rounded-lg border border-[#B84E4B]/30 bg-[#B84E4B]/10 p-3 text-xs leading-5 text-[#B84E4B]">
+                  <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                  <span>{aisError}</span>
+                </p>
+              )}
+
+              <button
+                type="button"
+                onClick={() => void handleFindAisCandidates()}
+                disabled={aisState === 'loading'}
+                className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-[var(--ot-primary)] px-4 py-3 text-sm font-bold text-white transition-colors hover:bg-[var(--ot-primary-dark)] disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {aisState === 'loading'
+                  ? <RefreshCw className="h-4 w-4 animate-spin" />
+                  : <Search className="h-4 w-4" />}
+                {aisState === 'loading' ? 'SEARCHING AIS PRESENCE…' : 'FIND AIS VESSEL PRESENCE'}
+              </button>
+
+              {aisResult && (
+                <div className="space-y-4 border-t border-[var(--ot-border)] pt-4">
+                  <div>
+                    <h3 className="text-sm font-bold text-[var(--ot-text)]">AIS-DERIVED VESSEL PRESENCE</h3>
+                    <p className={`mt-2 rounded-lg border p-3 text-xs ${
+                      aisResult.observationCount > 0
+                        ? 'border-[var(--ot-primary)]/30 bg-[var(--ot-primary-soft)] text-[var(--ot-text)]'
+                        : 'border-[var(--ot-border)] bg-[var(--ot-shell)] text-[var(--ot-text-secondary)]'
+                    }`}>
+                      {aisResult.observationCount > 0
+                        ? 'AIS presence detected within search radius'
+                        : 'No AIS-derived vessel presence found within the search radius and time window.'}
+                    </p>
+                  </div>
+
+                  <dl className="grid grid-cols-2 gap-3 text-xs sm:grid-cols-4">
+                    <div className="rounded-md border border-[var(--ot-border)] p-3">
+                      <dt className="text-[var(--ot-muted)]">Observations found</dt>
+                      <dd className="mt-1 font-semibold text-[var(--ot-text)]">{aisResult.observationCount}</dd>
+                    </div>
+                    <div className="rounded-md border border-[var(--ot-border)] p-3">
+                      <dt className="text-[var(--ot-muted)]">Unique vessels found</dt>
+                      <dd className="mt-1 font-semibold text-[var(--ot-text)]">{aisResult.uniqueVesselCount}</dd>
+                    </div>
+                    <div className="rounded-md border border-[var(--ot-border)] p-3">
+                      <dt className="text-[var(--ot-muted)]">Search radius</dt>
+                      <dd className="mt-1 font-semibold text-[var(--ot-text)]">{aisResult.investigation.radiusKm} km</dd>
+                    </div>
+                    <div className="rounded-md border border-[var(--ot-border)] p-3">
+                      <dt className="text-[var(--ot-muted)]">Time window</dt>
+                      <dd className="mt-1 font-semibold text-[var(--ot-text)]">
+                        {formatAcquisitionDate(aisResult.investigation.from)} – {formatAcquisitionDate(aisResult.investigation.to)}
+                      </dd>
+                    </div>
+                  </dl>
+
+                  <div className="overflow-x-auto rounded-lg border border-[var(--ot-border)]">
+                    <table className="w-full min-w-[680px] text-left text-xs">
+                      <thead className="bg-[var(--ot-shell)] text-[var(--ot-text-secondary)]">
+                        <tr>
+                          <th className="px-3 py-2 font-semibold">Vessel</th>
+                          <th className="px-3 py-2 font-semibold">MMSI</th>
+                          <th className="px-3 py-2 font-semibold">Type</th>
+                          <th className="px-3 py-2 font-semibold">Flag</th>
+                          <th className="px-3 py-2 font-semibold">Minimum distance</th>
+                          <th className="px-3 py-2 font-semibold">Observation count</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-[var(--ot-border)]">
+                        {nearestVessels.map((vessel) => (
+                          <tr key={vessel.id} className={selectedVesselId === vessel.id ? 'bg-[var(--ot-primary-soft)]' : ''}>
+                            <td className="px-3 py-2">
+                              <button
+                                type="button"
+                                onClick={() => setSelectedVesselId(vessel.id)}
+                                className="font-semibold text-[var(--ot-primary)] hover:underline"
+                              >
+                                {vessel.name ?? vessel.id}
+                              </button>
+                            </td>
+                            <td className="px-3 py-2 text-[var(--ot-text-secondary)]">{vessel.mmsi ?? '—'}</td>
+                            <td className="px-3 py-2 text-[var(--ot-text-secondary)]">{vessel.type ?? '—'}</td>
+                            <td className="px-3 py-2 text-[var(--ot-text-secondary)]">{vessel.flag ?? '—'}</td>
+                            <td className="px-3 py-2 text-[var(--ot-text-secondary)]">{formatDistance(vessel.minimumDistanceKm)}</td>
+                            <td className="px-3 py-2 text-[var(--ot-text-secondary)]">{vessel.observationCount}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                    {nearestVessels.length === 0 && (
+                      <p className="p-3 text-xs text-[var(--ot-text-secondary)]">No unique vessel records were available for this search.</p>
+                    )}
+                  </div>
+
+                  {selectedVessel && (
+                    <div className="space-y-3 rounded-lg border border-[var(--ot-border)] p-4">
+                      <div>
+                        <h4 className="text-xs font-bold text-[var(--ot-text)]">VESSEL OBSERVATIONS</h4>
+                        <p className="mt-1 text-xs text-[var(--ot-text-secondary)]">
+                          {[selectedVessel.name, selectedVessel.mmsi, selectedVessel.type, selectedVessel.flag]
+                            .filter(Boolean)
+                            .join(' · ') || selectedVessel.id}
+                        </p>
+                      </div>
+                      <div className="space-y-2">
+                        {selectedVesselObservations.map((observation, index) => (
+                          <article
+                            key={`${observation.date}-${observation.lat}-${observation.lon}-${index}`}
+                            className="grid grid-cols-1 gap-2 rounded-md bg-[var(--ot-shell)] p-3 text-xs sm:grid-cols-4"
+                          >
+                            <div>
+                              <div className="text-[var(--ot-muted)]">Observation date/time</div>
+                              <div className="mt-1 text-[var(--ot-text)]">{observation.date}</div>
+                            </div>
+                            <div>
+                              <div className="text-[var(--ot-muted)]">Distance</div>
+                              <div className="mt-1 text-[var(--ot-text)]">{formatDistance(observation.distanceKm)}</div>
+                            </div>
+                            <div>
+                              <div className="text-[var(--ot-muted)]">Location type</div>
+                              <div className="mt-1 text-[var(--ot-text)]">GFW grid-cell center</div>
+                            </div>
+                            <div>
+                              <div className="text-[var(--ot-muted)]">Activity hours</div>
+                              <div className="mt-1 text-[var(--ot-text)]">{observation.activityHours ?? '—'}</div>
+                            </div>
+                          </article>
+                        ))}
+                        {selectedVesselObservations.length === 0 && (
+                          <p className="text-xs text-[var(--ot-text-secondary)]">No detailed observations were returned for this vessel.</p>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  <p className="text-[11px] leading-5 text-[var(--ot-muted)]">
+                    Coordinates represent GFW grid-cell centers, not exact AIS fixes. Presence is observational and does not establish responsibility for an event.
+                  </p>
+                </div>
+              )}
+            </section>
+          )}
 
           <section className="glass-panel rounded-xl border p-5 sm:p-6">
             <div className="flex items-center gap-2">
