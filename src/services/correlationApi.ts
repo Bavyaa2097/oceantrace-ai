@@ -9,7 +9,7 @@ export interface AisCorrelationInput {
   radiusKm: number;
   from: string;
   to: string;
-  observations?: Array<Pick<
+  observations: Array<Pick<
     AisObservation,
     'id' | 'name' | 'mmsi' | 'type' | 'flag' | 'lat' | 'lon' | 'date' | 'activityHours' | 'locationType'
   >>;
@@ -99,14 +99,19 @@ async function readError(response: Response): Promise<CorrelationApiError> {
     );
   }
   if (response.status === 400) {
-    return new CorrelationApiError('The correlation request parameters are invalid.', response.status);
+    return new CorrelationApiError('The correlation request is invalid.', response.status);
   }
   if (response.status === 500) {
-    return new CorrelationApiError('The AIS service is not configured. Please try again later.', response.status);
+    return new CorrelationApiError(
+      details?.error === 'configuration_missing'
+        ? 'The AIS service is not configured.'
+        : 'Correlation calculation failed on the server. Please try again.',
+      response.status
+    );
   }
   if (response.status === 502) {
     return new CorrelationApiError(
-      'Global Fishing Watch could not complete the correlation request. Please try again later.',
+      'Global Fishing Watch could not complete the request.',
       response.status,
       details?.upstreamStatus
     );
@@ -124,7 +129,7 @@ export async function getAisCorrelation(
 ): Promise<AisCorrelationResponse> {
   const requestBody: AisCorrelationInput = {
     ...input,
-    observations: input.observations?.map((observation) => ({
+    observations: input.observations.map((observation) => ({
       id: observation.id,
       name: observation.name,
       mmsi: observation.mmsi,

@@ -1,5 +1,3 @@
-import getAisCandidates from './candidates';
-
 interface CorrelationRequest {
   method?: string;
   body?: unknown;
@@ -17,13 +15,6 @@ interface CandidateObservation {
   activityHours: number | null;
   locationType: 'grid_cell_center';
   distanceKm: number;
-}
-
-interface CandidateResponse {
-  ok: boolean;
-  error?: string;
-  upstreamStatus?: number;
-  observations?: unknown[];
 }
 
 interface CorrelationVessel {
@@ -107,17 +98,6 @@ const SIX_HOURS_MS = 6 * 60 * 60 * 1000;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-function parseCandidateResponse(value: unknown): CandidateResponse | null {
-  if (!isRecord(value) || typeof value.ok !== 'boolean') return null;
-
-  return {
-    ok: value.ok,
-    ...(typeof value.error === 'string' ? { error: value.error } : {}),
-    ...(typeof value.upstreamStatus === 'number' ? { upstreamStatus: value.upstreamStatus } : {}),
-    ...(Array.isArray(value.observations) ? { observations: value.observations } : {}),
-  };
 }
 
 function parseIsoTimestamp(value: unknown): number | null {
@@ -219,7 +199,7 @@ function haversineDistanceKm(lat1: number, lon1: number, lat2: number, lon2: num
   return 6371.0088 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
-function validCandidateObservation(
+function parseCandidateObservation(
   value: unknown,
   investigationLat: number,
   investigationLon: number,
@@ -228,10 +208,19 @@ function validCandidateObservation(
   if (!isRecord(value)) return null;
   const lat = finiteNumber(value.lat);
   const lon = finiteNumber(value.lon);
+  const date = typeof value.date === 'string' ? value.date : null;
   if (
     lat === null || lat < -90 || lat > 90 ||
     lon === null || lon < -180 || lon > 180 ||
-    typeof value.date !== 'string' ||
+    date === null ||
+    parseObservationTime(date) === null ||
+    (value.id !== undefined && value.id !== null && typeof value.id !== 'string') ||
+    (value.name !== undefined && value.name !== null && typeof value.name !== 'string') ||
+    (value.mmsi !== undefined && value.mmsi !== null && typeof value.mmsi !== 'string') ||
+    (value.type !== undefined && value.type !== null && typeof value.type !== 'string') ||
+    (value.flag !== undefined && value.flag !== null && typeof value.flag !== 'string') ||
+    (value.activityHours !== undefined && value.activityHours !== null &&
+      (finiteNumber(value.activityHours) === null || finiteNumber(value.activityHours)! < 0)) ||
     value.locationType !== 'grid_cell_center'
   ) {
     return null;
@@ -241,14 +230,14 @@ function validCandidateObservation(
   if (distanceKm > radiusKm) return null;
 
   return {
-    id: nullableString(value.id),
-    name: nullableString(value.name),
-    mmsi: nullableString(value.mmsi),
-    type: nullableString(value.type),
-    flag: nullableString(value.flag),
+    id: nullableString(value.id) ?? null,
+    name: nullableString(value.name) ?? null,
+    mmsi: nullableString(value.mmsi) ?? null,
+    type: nullableString(value.type) ?? null,
+    flag: nullableString(value.flag) ?? null,
     lat,
     lon,
-    date: value.date,
+    date,
     activityHours: finiteNumber(value.activityHours),
     locationType: 'grid_cell_center',
     distanceKm,
@@ -379,46 +368,6 @@ function makeVesselSummaries(
     );
 }
 
-async function fetchCandidateObservations(
-  lat: number,
-  lon: number,
-  radiusKm: number,
-  from: string,
-  to: string
-): Promise<{ status: number; response: CandidateResponse | null }> {
-  let status = 200;
-  let body: unknown;
-  await getAisCandidates(
-    {
-      method: 'GET',
-      query: {
-        lat: String(lat),
-        lon: String(lon),
-        radiusKm: String(radiusKm),
-        from,
-        to,
-      },
-    },
-    {
-      setHeader: () => undefined,
-      status: (nextStatus) => {
-        status = nextStatus;
-        return {
-          json: (payload) => {
-            body = payload;
-            return undefined;
-          },
-        };
-      },
-    }
-  );
-
-  return {
-    status,
-    response: parseCandidateResponse(body),
-  };
-}
-
 export default async function handler(req: CorrelationRequest, res: ResponseWriter): Promise<void> {
   res.setHeader('Allow', 'POST');
   res.setHeader('Cache-Control', 'no-store');
@@ -428,7 +377,21 @@ export default async function handler(req: CorrelationRequest, res: ResponseWrit
     return;
   }
 
+  try {
   const body = req.body;
+  if (!isRecord(body) || !('observations' in body)) {
+    res.status(400).json({ ok: false, service: SERVICE, error: 'observations_required' });
+    return;
+  }
+  if (!Array.isArray(body.observations)) {
+    res.status(400).json({ ok: false, service: SERVICE, error: 'invalid_observations' });
+    return;
+  }
+  if (body.observations.length > 2000) {
+    res.status(413).json({ ok: false, service: SERVICE, error: 'too_many_observations' });
+    return;
+  }
+
   const investigationPoint = isRecord(body) && isRecord(body.investigationPoint)
     ? body.investigationPoint
     : null;
@@ -455,38 +418,19 @@ export default async function handler(req: CorrelationRequest, res: ResponseWrit
     return;
   }
 
-  let observations: CandidateObservation[];
-  if (isRecord(body) && Array.isArray(body.observations)) {
-    const parsedObservations = body.observations
-      .map((observation) => validCandidateObservation(observation, lat, lon, radiusKm))
-      .filter((value): value is CandidateObservation => value !== null);
-    if (parsedObservations.length !== body.observations.length) {
+  console.info('correlation request received', {
+    observationCount: body.observations.length,
+    hasSatelliteTimestamp: satelliteTimestamp !== null,
+    radiusKm,
+  });
+  const observations: CandidateObservation[] = [];
+  for (const observation of body.observations) {
+    const parsed = parseCandidateObservation(observation, lat, lon, radiusKm);
+    if (!parsed) {
       res.status(400).json({ ok: false, service: SERVICE, error: 'invalid_observations' });
       return;
     }
-    observations = parsedObservations;
-  } else {
-    const candidates = await fetchCandidateObservations(
-      lat,
-      lon,
-      radiusKm,
-      from as string,
-      to as string
-    );
-    if (!candidates.response?.ok || !Array.isArray(candidates.response.observations)) {
-      const upstreamStatus = candidates.response?.upstreamStatus;
-      const responseStatus = candidates.status === 500 ? 500 : 502;
-      res.status(responseStatus).json({
-        ok: false,
-        service: SERVICE,
-        error: candidates.response?.error ?? 'upstream_error',
-        ...(upstreamStatus !== undefined ? { upstreamStatus } : {}),
-      });
-      return;
-    }
-    observations = candidates.response.observations
-      .map((observation) => validCandidateObservation(observation, lat, lon, radiusKm))
-      .filter((value): value is CandidateObservation => value !== null);
+    observations.push(parsed);
   }
 
   const uniqueObservations = new Map<string, CandidateObservation>();
@@ -510,6 +454,10 @@ export default async function handler(req: CorrelationRequest, res: ResponseWrit
     radiusKm
   );
 
+  console.info('correlation calculation complete', {
+    filteredObservationCount: filteredObservations.length,
+    uniqueVesselCount: vessels.length,
+  });
   res.status(200).json({
     ok: true,
     service: SERVICE,
@@ -526,4 +474,14 @@ export default async function handler(req: CorrelationRequest, res: ResponseWrit
     vessels,
     limitations: LIMITATIONS,
   });
+  } catch (error) {
+    const errorName = error instanceof Error && /^[A-Za-z][A-Za-z0-9]*$/.test(error.name)
+      ? error.name.slice(0, 80)
+      : 'UnknownError';
+    console.error('correlation calculation failed', {
+      errorName,
+      message: 'Unexpected correlation calculation error',
+    });
+    res.status(500).json({ ok: false, service: SERVICE, error: 'internal_error' });
+  }
 }
