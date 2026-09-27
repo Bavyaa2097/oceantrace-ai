@@ -37,6 +37,7 @@ import {
 import {
   analyzeSarImage,
   SarAnomalyAnalysis,
+  SarAnomalyCandidate,
 } from '../services/sarAnomalyDetection';
 
 interface SpillDetectionProps {
@@ -104,6 +105,41 @@ function getBoundingBoxCenter(bbox?: SatelliteBoundingBox): { lat: number; lon: 
   };
 }
 
+function getCandidateGeographicFocus(
+  candidate: SarAnomalyCandidate,
+  analysis: SarAnomalyAnalysis,
+  bbox?: SatelliteBoundingBox | null,
+): { lat: number; lon: number } | null {
+  if (
+    !bbox ||
+    !getBoundingBoxCenter(bbox) ||
+    !Number.isFinite(analysis.width) ||
+    !Number.isFinite(analysis.height) ||
+    analysis.width <= 0 ||
+    analysis.height <= 0 ||
+    !Number.isFinite(candidate.centroid.x) ||
+    !Number.isFinite(candidate.centroid.y) ||
+    candidate.centroid.x < 0 ||
+    candidate.centroid.x >= analysis.width ||
+    candidate.centroid.y < 0 ||
+    candidate.centroid.y >= analysis.height
+  ) {
+    return null;
+  }
+
+  const [minLon, minLat, maxLon, maxLat] = bbox;
+  const lonFraction = (candidate.centroid.x + 0.5) / analysis.width;
+  const latFraction = (candidate.centroid.y + 0.5) / analysis.height;
+  const focus = {
+    lon: minLon + lonFraction * (maxLon - minLon),
+    lat: maxLat - latFraction * (maxLat - minLat),
+  };
+
+  return Number.isFinite(focus.lat) && Number.isFinite(focus.lon)
+    ? focus
+    : null;
+}
+
 function formatDistance(distanceKm: number): string {
   return `${distanceKm.toFixed(1)} km`;
 }
@@ -124,6 +160,7 @@ export const SpillDetection: React.FC<SpillDetectionProps> = ({
   const [imageState, setImageState] = useState<RequestState>('idle');
   const [selectedAcquisition, setSelectedAcquisition] = useState<SatelliteAcquisition | null>(null);
   const [imageUrl, setImageUrl] = useState<string | null>(null);
+  const [selectedImageExtent, setSelectedImageExtent] = useState<SatelliteBoundingBox | null>(null);
   const [sarAnalysis, setSarAnalysis] = useState<SarAnomalyAnalysis | null>(null);
   const [sarAnalysisState, setSarAnalysisState] = useState<AnalysisState>('idle');
   const [sarAnalysisError, setSarAnalysisError] = useState<string | null>(null);
@@ -133,6 +170,8 @@ export const SpillDetection: React.FC<SpillDetectionProps> = ({
   const [localImageName, setLocalImageName] = useState<string | null>(null);
   const [investigationLat, setInvestigationLat] = useState('');
   const [investigationLon, setInvestigationLon] = useState('');
+  const [selectedAnomalyCandidateId, setSelectedAnomalyCandidateId] = useState<number | null>(null);
+  const [candidateFocusStatus, setCandidateFocusStatus] = useState<'derived' | 'unavailable' | null>(null);
   const [searchRadiusKm, setSearchRadiusKm] = useState(String(DEFAULT_RADIUS_KM));
   const [aisState, setAisState] = useState<RequestState>('idle');
   const [aisResult, setAisResult] = useState<AisCandidatesResponse | null>(null);
@@ -271,6 +310,9 @@ export const SpillDetection: React.FC<SpillDetectionProps> = ({
     clearAisResults();
     setSelectedAcquisition(null);
     setImageUrl(null);
+    setSelectedImageExtent(null);
+    setSelectedAnomalyCandidateId(null);
+    setCandidateFocusStatus(null);
     setImageState('idle');
     setImageError(null);
     setAcquisitions([]);
@@ -294,6 +336,9 @@ export const SpillDetection: React.FC<SpillDetectionProps> = ({
     setAcquisitions([]);
     setSelectedAcquisition(null);
     setImageUrl(null);
+    setSelectedImageExtent(null);
+    setSelectedAnomalyCandidateId(null);
+    setCandidateFocusStatus(null);
     setImageState('idle');
     setImageError(null);
     clearAisResults();
@@ -317,6 +362,9 @@ export const SpillDetection: React.FC<SpillDetectionProps> = ({
     if (aisRequestInFlight.current) return;
     clearAisResults();
     const center = getBoundingBoxCenter(acquisition.bbox);
+    setSelectedAnomalyCandidateId(null);
+    setCandidateFocusStatus(null);
+    setSelectedImageExtent(null);
     setInvestigationLat(center ? String(center.lat) : '');
     setInvestigationLon(center ? String(center.lon) : '');
     setSearchRadiusKm(String(DEFAULT_RADIUS_KM));
@@ -342,6 +390,7 @@ export const SpillDetection: React.FC<SpillDetectionProps> = ({
       from: acquisitionTime ?? searchInput.from,
       to: acquisitionTime ?? searchInput.to,
     };
+    setSelectedImageExtent(imageInput.bbox);
 
     try {
       const imageBlob = await getSatelliteImage({
@@ -356,6 +405,25 @@ export const SpillDetection: React.FC<SpillDetectionProps> = ({
       setImageError(getApiErrorMessage(error, 'Could not retrieve this SAR observation.'));
       setImageState('error');
     }
+  };
+
+  const handleSelectAnomalyCandidate = (candidate: SarAnomalyCandidate) => {
+    if (isDemoMode || !sarAnalysis) return;
+
+    setSelectedAnomalyCandidateId(candidate.id);
+    const focus = getCandidateGeographicFocus(candidate, sarAnalysis, selectedImageExtent);
+    if (!focus) {
+      setInvestigationLat('');
+      setInvestigationLon('');
+      setCandidateFocusStatus('unavailable');
+      clearAisResults();
+      return;
+    }
+
+    clearAisResults();
+    setInvestigationLat(focus.lat.toFixed(6));
+    setInvestigationLon(focus.lon.toFixed(6));
+    setCandidateFocusStatus('derived');
   };
 
   const handleFindAisCandidates = async () => {
@@ -876,10 +944,10 @@ export const SpillDetection: React.FC<SpillDetectionProps> = ({
                               y={candidate.boundingBox.minY}
                               width={candidate.boundingBox.width}
                               height={candidate.boundingBox.height}
-                              fill="#E7A94B"
+                              fill={selectedAnomalyCandidateId === candidate.id ? '#58B9A8' : '#E7A94B'}
                               fillOpacity="0.12"
-                              stroke="#F1BE68"
-                              strokeWidth={Math.max(1.5, sarAnalysis.width / 300)}
+                              stroke={selectedAnomalyCandidateId === candidate.id ? '#78D6C4' : '#F1BE68'}
+                              strokeWidth={Math.max(selectedAnomalyCandidateId === candidate.id ? 2.5 : 1.5, sarAnalysis.width / 300)}
                             />
                             <text
                               x={candidate.boundingBox.minX + 3}
@@ -977,7 +1045,7 @@ export const SpillDetection: React.FC<SpillDetectionProps> = ({
                         {sarAnalysis.candidates.length} candidate {sarAnalysis.candidates.length === 1 ? 'region' : 'regions'} returned; numbered outlines correspond to the image overlay.
                       </p>
                       <div className="overflow-x-auto rounded-lg border border-[var(--ot-border)]">
-                        <table className="w-full min-w-[680px] text-left text-xs">
+                        <table className="w-full min-w-[900px] text-left text-xs">
                           <thead className="bg-[var(--ot-shell)] text-[var(--ot-text-secondary)]">
                             <tr>
                               <th className="px-3 py-2 font-semibold">Candidate</th>
@@ -986,11 +1054,15 @@ export const SpillDetection: React.FC<SpillDetectionProps> = ({
                               <th className="px-3 py-2 font-semibold">Centroid (pixels)</th>
                               <th className="px-3 py-2 font-semibold">Mean intensity</th>
                               <th className="px-3 py-2 font-semibold">Background contrast</th>
+                              <th className="px-3 py-2 font-semibold">Investigation focus</th>
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-[var(--ot-border)]">
                             {sarAnalysis.candidates.map((candidate) => (
-                              <tr key={candidate.id}>
+                              <tr
+                                key={candidate.id}
+                                className={selectedAnomalyCandidateId === candidate.id ? 'bg-[#58B9A8]/5' : undefined}
+                              >
                                 <td className="px-3 py-2 font-semibold text-[var(--ot-text)]">{candidate.id}</td>
                                 <td className="px-3 py-2 text-[var(--ot-text-secondary)]">
                                   x {candidate.boundingBox.minX}–{candidate.boundingBox.maxX}, y {candidate.boundingBox.minY}–{candidate.boundingBox.maxY}
@@ -1001,6 +1073,16 @@ export const SpillDetection: React.FC<SpillDetectionProps> = ({
                                 </td>
                                 <td className="px-3 py-2 text-[var(--ot-text-secondary)]">{candidate.meanIntensity.toFixed(1)} / 255</td>
                                 <td className="px-3 py-2 text-[var(--ot-text-secondary)]">{(candidate.contrast * 100).toFixed(1)}%</td>
+                                <td className="px-3 py-2">
+                                  <button
+                                    type="button"
+                                    onClick={() => handleSelectAnomalyCandidate(candidate)}
+                                    aria-pressed={selectedAnomalyCandidateId === candidate.id}
+                                    className="whitespace-nowrap rounded-md border border-[var(--ot-border)] px-2 py-1 text-[11px] font-medium text-[var(--ot-text)] hover:border-[var(--ot-primary)] hover:text-[var(--ot-primary)]"
+                                  >
+                                    {selectedAnomalyCandidateId === candidate.id ? 'Selected' : 'Set investigation focus'}
+                                  </button>
+                                </td>
                               </tr>
                             ))}
                           </tbody>
@@ -1051,6 +1133,8 @@ export const SpillDetection: React.FC<SpillDetectionProps> = ({
                     value={investigationLat}
                     onChange={(event) => {
                       clearAisResults();
+                      setSelectedAnomalyCandidateId(null);
+                      setCandidateFocusStatus(null);
                       setInvestigationLat(event.target.value);
                     }}
                     className="w-full rounded-md border border-[var(--ot-border)] bg-[var(--ot-card)] px-3 py-2 text-sm text-[var(--ot-text)]"
@@ -1067,6 +1151,8 @@ export const SpillDetection: React.FC<SpillDetectionProps> = ({
                     value={investigationLon}
                     onChange={(event) => {
                       clearAisResults();
+                      setSelectedAnomalyCandidateId(null);
+                      setCandidateFocusStatus(null);
                       setInvestigationLon(event.target.value);
                     }}
                     className="w-full rounded-md border border-[var(--ot-border)] bg-[var(--ot-card)] px-3 py-2 text-sm text-[var(--ot-text)]"
@@ -1089,6 +1175,17 @@ export const SpillDetection: React.FC<SpillDetectionProps> = ({
                   />
                 </label>
               </div>
+
+              {candidateFocusStatus === 'derived' && (
+                <p className="text-xs font-medium text-[var(--ot-primary)]">
+                  Derived from selected SAR anomaly candidate
+                </p>
+              )}
+              {candidateFocusStatus === 'unavailable' && (
+                <p className="text-xs text-[var(--ot-text-secondary)]">
+                  Geographic focus unavailable for this observation
+                </p>
+              )}
 
               {!getBoundingBoxCenter(selectedAcquisition.bbox) && (
                 <p className="text-xs text-[var(--ot-text-secondary)]">
