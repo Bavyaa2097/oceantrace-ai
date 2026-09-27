@@ -24,8 +24,9 @@ interface ApiResponse {
   service: string;
   error?: string;
   upstreamStatus?: number;
+  upstreamMessage?: string;
   count?: number;
-  vessels?: VesselActivity[];
+  vessels?: Array<VesselActivity | Record<string, string | number>>;
 }
 
 interface ResponseWriter {
@@ -134,6 +135,80 @@ function extractActivityRows(payload: unknown): VesselActivity[] | null {
   return vessels;
 }
 
+function normalizeRegionRow(row: unknown): Record<string, string | number> | null {
+  if (!isRecord(row)) return null;
+
+  const normalized: Record<string, string | number> = {};
+  const gearType = row.geartype ?? row.gearType;
+  if (typeof gearType === 'string' && gearType.trim() !== '') {
+    normalized.gearType = gearType;
+  }
+  if (typeof row.hours === 'number' && Number.isFinite(row.hours)) {
+    normalized.activityHours = row.hours;
+  }
+  if (typeof row.date === 'string' && row.date.trim() !== '') {
+    normalized.date = row.date;
+  }
+  if (typeof row.lat === 'number' && Number.isFinite(row.lat)) {
+    normalized.lat = row.lat;
+  }
+  if (typeof row.lon === 'number' && Number.isFinite(row.lon)) {
+    normalized.lon = row.lon;
+  }
+
+  return Object.keys(normalized).length > 0 ? normalized : null;
+}
+
+function extractRegionRows(payload: unknown): Array<Record<string, string | number>> | null {
+  if (!isRecord(payload) || !Array.isArray(payload.entries)) return null;
+
+  const rows: Array<Record<string, string | number>> = [];
+  for (const entry of payload.entries) {
+    if (!isRecord(entry)) continue;
+
+    for (const [datasetVersion, datasetRows] of Object.entries(entry)) {
+      if (!datasetVersion.startsWith('public-global-presence:') || !Array.isArray(datasetRows)) continue;
+      for (const row of datasetRows) {
+        const normalized = normalizeRegionRow(row);
+        if (normalized) rows.push(normalized);
+      }
+    }
+  }
+
+  return rows;
+}
+
+function sanitizeUpstreamMessage(value: unknown, token: string): string | undefined {
+  if (typeof value !== 'string' || value.trim() === '') return undefined;
+
+  const sanitized = value
+    .split(token).join('[redacted]')
+    .replace(/Bearer\s+\S+/gi, 'Bearer [redacted]')
+    .replace(/[\r\n\t]+/g, ' ')
+    .trim()
+    .slice(0, 180);
+  return sanitized || undefined;
+}
+
+async function get422DebugMessage(response: Response, token: string): Promise<string | undefined> {
+  try {
+    const payload: unknown = await response.json();
+    if (!isRecord(payload)) return undefined;
+
+    const messages = Array.isArray(payload.messages) ? payload.messages : [];
+    const firstMessage = isRecord(messages[0]) ? messages[0] : null;
+    const parts = [
+      sanitizeUpstreamMessage(payload.error, token),
+      sanitizeUpstreamMessage(firstMessage?.title, token),
+      sanitizeUpstreamMessage(firstMessage?.detail, token),
+    ].filter((part): part is string => part !== undefined);
+
+    return parts.length > 0 ? parts.join(': ').slice(0, 360) : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 export default async function handler(req: VesselsRequest, res: ResponseWriter): Promise<void> {
   res.setHeader('Allow', 'GET');
   res.setHeader('Cache-Control', 'no-store');
@@ -239,15 +314,11 @@ export default async function handler(req: VesselsRequest, res: ResponseWriter):
 
   const url = new URL(GFW_URL);
   url.searchParams.set('datasets[0]', DATASET);
-  if (regionId !== null) {
-    url.searchParams.set('region-id', String(regionId));
-    url.searchParams.set('region-dataset', 'public-eez-areas');
-  }
   url.searchParams.set('date-range', `${startDate},${endDate}`);
-  url.searchParams.set('temporal-resolution', 'HOURLY');
-  url.searchParams.set('spatial-resolution', 'HIGH');
+  url.searchParams.set('temporal-resolution', regionId !== null ? 'DAILY' : 'HOURLY');
+  url.searchParams.set('spatial-resolution', regionId !== null ? 'LOW' : 'HIGH');
   url.searchParams.set('spatial-aggregation', 'false');
-  url.searchParams.set('group-by', 'VESSEL_ID');
+  url.searchParams.set('group-by', regionId !== null ? 'GEARTYPE' : 'VESSEL_ID');
   url.searchParams.set('format', 'JSON');
 
   let requestBody: Record<string, unknown>;
@@ -277,6 +348,10 @@ export default async function handler(req: VesselsRequest, res: ResponseWriter):
     });
 
     if (!upstream.ok) {
+      const upstreamMessage =
+        regionId !== null && upstream.status === 422
+          ? await get422DebugMessage(upstream, token)
+          : undefined;
       const apiStatus = upstream.status === 429 ? 429 : 502;
       const error =
         upstream.status === 401
@@ -288,19 +363,23 @@ export default async function handler(req: VesselsRequest, res: ResponseWriter):
               : 'upstream_error';
       console.warn('GFW 4Wings request failed', {
         status: upstream.status,
-        message: 'Upstream request rejected',
+        message: upstreamMessage ?? 'Upstream request rejected',
       });
       res.status(apiStatus).json({
         ok: false,
         service: SERVICE,
         error,
         upstreamStatus: upstream.status,
+        ...(upstreamMessage ? { upstreamMessage } : {}),
       });
       return;
     }
 
     const payload: unknown = await upstream.json();
-    const vessels = extractActivityRows(payload);
+    const vessels =
+      regionId !== null
+        ? extractRegionRows(payload)
+        : extractActivityRows(payload);
     if (!vessels) {
       console.warn('GFW vessel activity response invalid', {
         status: upstream.status,
