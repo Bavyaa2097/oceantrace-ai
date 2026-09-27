@@ -1079,7 +1079,7 @@ export const SpillDetection: React.FC<SpillDetectionProps> = ({
                   <div>
                     <h3 className="text-sm font-bold text-[var(--ot-text)]">SPATIAL / TEMPORAL CORRELATION</h3>
                     <p className="mt-1 text-xs leading-5 text-[var(--ot-text-secondary)]">
-                      A transparent ordering based on spatial proximity, temporal proximity, and repeated AIS-derived presence. It is not a probability or an assessment of responsibility.
+                      A transparent ordering based on spatial proximity, temporal proximity, repeated AIS-derived presence, and observation spread across returned observations. It is not a probability or an assessment of responsibility.
                     </p>
                   </div>
 
@@ -1107,7 +1107,7 @@ export const SpillDetection: React.FC<SpillDetectionProps> = ({
                       <h4 className="text-xs font-bold text-[var(--ot-text)]">Correlation analysis complete</h4>
                       <p className="rounded-lg border border-[var(--ot-border)] bg-[var(--ot-shell)] p-3 text-xs leading-5 text-[var(--ot-text-secondary)]">
                         {correlationResult.vessels.length > 0
-                          ? 'Correlation indicator calculated from spatial proximity, temporal proximity, and AIS-derived presence persistence.'
+                          ? 'Correlation indicator calculated from spatial proximity, temporal proximity, AIS-derived presence persistence, and observation spread.'
                           : 'No AIS-derived vessel presence was found within the requested spatial and temporal window.'}
                       </p>
 
