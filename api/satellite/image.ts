@@ -12,7 +12,7 @@ interface ResponseWriter {
   setHeader(name: string, value: string): void;
   status(code: number): {
     json(body: ErrorResponse): unknown;
-    send(body: Uint8Array): unknown;
+    send(body: Buffer): unknown;
   };
 }
 
@@ -232,13 +232,18 @@ export default async function handler(req: ImageRequest, res: ResponseWriter): P
       return;
     }
 
-    const imageBytes = new Uint8Array(await processResponse.arrayBuffer());
-    if (imageBytes.length === 0) {
-      sendError(res, 502, 'Copernicus Processing API returned an empty image');
+    const imageBytes = Buffer.from(await processResponse.arrayBuffer());
+    const pngSignature = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+    if (
+      imageBytes.length < pngSignature.length ||
+      !imageBytes.subarray(0, pngSignature.length).equals(pngSignature)
+    ) {
+      sendError(res, 502, 'Copernicus returned non-PNG image data');
       return;
     }
 
     res.setHeader('Content-Type', 'image/png');
+    res.setHeader('Content-Disposition', 'inline');
     res.status(200).send(imageBytes);
   } catch {
     sendError(res, 502, 'Copernicus Processing API request failed');
