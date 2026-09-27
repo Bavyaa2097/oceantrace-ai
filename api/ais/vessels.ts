@@ -4,7 +4,7 @@ interface VesselsRequest {
 }
 
 interface VesselActivity {
-  id: string;
+  id: string | null;
   name: string | null;
   mmsi: string | null;
   type: string | null;
@@ -90,20 +90,24 @@ function toUtcDate(timestamp: number): string {
 }
 
 function normalizeActivity(row: unknown): VesselActivity | null {
-  if (!isRecord(row) || typeof row.vessel_id !== 'string' || row.vessel_id.trim() === '') {
-    return null;
-  }
+  if (!isRecord(row)) return null;
 
   const getString = (value: unknown): string | null =>
     typeof value === 'string' && value.trim() !== '' ? value : null;
+  const getIdentifier = (value: unknown): string | null =>
+    typeof value === 'string' && value.trim() !== ''
+      ? value
+      : typeof value === 'number' && Number.isFinite(value)
+        ? String(value)
+        : null;
   const getNumber = (value: unknown): number | null =>
     typeof value === 'number' && Number.isFinite(value) ? value : null;
 
-  return {
-    id: row.vessel_id,
-    name: getString(row.shipName),
-    mmsi: getString(row.mmsi),
-    type: getString(row.vessel_type),
+  const activity: VesselActivity = {
+    id: getIdentifier(row.vesselId ?? row.vessel_id),
+    name: getString(row.shipName ?? row.ship_name),
+    mmsi: getIdentifier(row.mmsi),
+    type: getString(row.vesselType ?? row.vessel_type),
     flag: getString(row.flag),
     lat: getNumber(row.lat),
     lon: getNumber(row.lon),
@@ -114,6 +118,20 @@ function normalizeActivity(row: unknown): VesselActivity | null {
     activityHours: getNumber(row.hours),
     locationType: 'grid_cell_center',
   };
+
+  return [
+    activity.id,
+    activity.name,
+    activity.mmsi,
+    activity.type,
+    activity.flag,
+    activity.lat,
+    activity.lon,
+    activity.date,
+    activity.activityHours,
+  ].some((value) => value !== null)
+    ? activity
+    : null;
 }
 
 function extractActivityRows(payload: unknown): VesselActivity[] | null {
@@ -133,49 +151,6 @@ function extractActivityRows(payload: unknown): VesselActivity[] | null {
   }
 
   return vessels;
-}
-
-function normalizeRegionRow(row: unknown): Record<string, string | number> | null {
-  if (!isRecord(row)) return null;
-
-  const normalized: Record<string, string | number> = {};
-  const gearType = row.geartype ?? row.gearType;
-  if (typeof gearType === 'string' && gearType.trim() !== '') {
-    normalized.gearType = gearType;
-  }
-  if (typeof row.hours === 'number' && Number.isFinite(row.hours)) {
-    normalized.activityHours = row.hours;
-  }
-  if (typeof row.date === 'string' && row.date.trim() !== '') {
-    normalized.date = row.date;
-  }
-  if (typeof row.lat === 'number' && Number.isFinite(row.lat)) {
-    normalized.lat = row.lat;
-  }
-  if (typeof row.lon === 'number' && Number.isFinite(row.lon)) {
-    normalized.lon = row.lon;
-  }
-
-  return Object.keys(normalized).length > 0 ? normalized : null;
-}
-
-function extractRegionRows(payload: unknown): Array<Record<string, string | number>> | null {
-  if (!isRecord(payload) || !Array.isArray(payload.entries)) return null;
-
-  const rows: Array<Record<string, string | number>> = [];
-  for (const entry of payload.entries) {
-    if (!isRecord(entry)) continue;
-
-    for (const [datasetVersion, datasetRows] of Object.entries(entry)) {
-      if (!datasetVersion.startsWith('public-global-presence:') || !Array.isArray(datasetRows)) continue;
-      for (const row of datasetRows) {
-        const normalized = normalizeRegionRow(row);
-        if (normalized) rows.push(normalized);
-      }
-    }
-  }
-
-  return rows;
 }
 
 function sanitizeUpstreamMessage(value: unknown, token: string): string | undefined {
@@ -318,7 +293,7 @@ export default async function handler(req: VesselsRequest, res: ResponseWriter):
   url.searchParams.set('temporal-resolution', regionId !== null ? 'DAILY' : 'HOURLY');
   url.searchParams.set('spatial-resolution', regionId !== null ? 'LOW' : 'HIGH');
   url.searchParams.set('spatial-aggregation', 'false');
-  url.searchParams.set('group-by', regionId !== null ? 'GEARTYPE' : 'VESSEL_ID');
+  url.searchParams.set('group-by', 'VESSEL_ID');
   url.searchParams.set('format', 'JSON');
 
   let requestBody: Record<string, unknown>;
@@ -376,10 +351,7 @@ export default async function handler(req: VesselsRequest, res: ResponseWriter):
     }
 
     const payload: unknown = await upstream.json();
-    const vessels =
-      regionId !== null
-        ? extractRegionRows(payload)
-        : extractActivityRows(payload);
+    const vessels = extractActivityRows(payload);
     if (!vessels) {
       console.warn('GFW vessel activity response invalid', {
         status: upstream.status,
