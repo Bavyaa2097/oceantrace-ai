@@ -25,11 +25,14 @@ export interface SarAnomalyAnalysis {
   candidates: SarAnomalyCandidate[];
 }
 
-const EDGE_MARGIN = 3;
+const EDGE_EXCLUSION_MARGIN = 16;
 const MIN_REGION_AREA = 12;
 const MAX_IMAGE_DIMENSION = 4096;
 const MIN_DARKNESS_DELTA = 12;
 const MAD_MULTIPLIER = 2.5;
+const NEAR_BLACK_INTENSITY = 2;
+const NEAR_BLACK_COMPONENT_MEAN = 4;
+const NEAR_BLACK_COMPONENT_FRACTION = 0.8;
 const MAX_CANDIDATES = 10;
 
 function percentile(sortedValues: number[], fraction: number): number {
@@ -53,8 +56,8 @@ export async function analyzeSarImage(imageUrl: string): Promise<SarAnomalyAnaly
 
   const { naturalWidth: width, naturalHeight: height } = image;
   if (
-    width <= EDGE_MARGIN * 2 ||
-    height <= EDGE_MARGIN * 2 ||
+    width <= EDGE_EXCLUSION_MARGIN * 2 ||
+    height <= EDGE_EXCLUSION_MARGIN * 2 ||
     width > MAX_IMAGE_DIMENSION ||
     height > MAX_IMAGE_DIMENSION
   ) {
@@ -83,17 +86,25 @@ export async function analyzeSarImage(imageUrl: string): Promise<SarAnomalyAnaly
       const intensity = luminanceAt(pixels.data, pixelIndex * 4);
       intensities[pixelIndex] = intensity;
       if (
-        x >= EDGE_MARGIN && x < width - EDGE_MARGIN &&
-        y >= EDGE_MARGIN && y < height - EDGE_MARGIN
+        x >= EDGE_EXCLUSION_MARGIN && x < width - EDGE_EXCLUSION_MARGIN &&
+        y >= EDGE_EXCLUSION_MARGIN && y < height - EDGE_EXCLUSION_MARGIN
       ) {
         backgroundSamples.push(intensity);
       }
     }
   }
 
-  backgroundSamples.sort((a, b) => a - b);
-  const backgroundIntensity = percentile(backgroundSamples, 0.5);
-  const deviations = backgroundSamples.map((value) => Math.abs(value - backgroundIntensity));
+  const validBackgroundSamples = backgroundSamples.filter(
+    (intensity) => intensity > NEAR_BLACK_INTENSITY,
+  );
+  const samplesForBackground = validBackgroundSamples.length > 0
+    ? validBackgroundSamples
+    : backgroundSamples;
+  samplesForBackground.sort((a, b) => a - b);
+  const backgroundIntensity = samplesForBackground.length > 0
+    ? percentile(samplesForBackground, 0.5)
+    : 0;
+  const deviations = samplesForBackground.map((value) => Math.abs(value - backgroundIntensity));
   deviations.sort((a, b) => a - b);
   const medianAbsoluteDeviation = percentile(deviations, 0.5);
   const darknessDelta = Math.max(MIN_DARKNESS_DELTA, MAD_MULTIPLIER * medianAbsoluteDeviation);
@@ -102,20 +113,22 @@ export async function analyzeSarImage(imageUrl: string): Promise<SarAnomalyAnaly
   const queue = new Int32Array(width * height);
   const candidates: SarAnomalyCandidate[] = [];
 
-  for (let y = EDGE_MARGIN; y < height - EDGE_MARGIN; y += 1) {
-    for (let x = EDGE_MARGIN; x < width - EDGE_MARGIN; x += 1) {
+  for (let y = EDGE_EXCLUSION_MARGIN; y < height - EDGE_EXCLUSION_MARGIN; y += 1) {
+    for (let x = EDGE_EXCLUSION_MARGIN; x < width - EDGE_EXCLUSION_MARGIN; x += 1) {
       const start = y * width + x;
       if (visited[start] || intensities[start] >= thresholdIntensity) continue;
 
       let head = 0;
       let tail = 0;
       let sumIntensity = 0;
+      let nearBlackPixelCount = 0;
       let sumX = 0;
       let sumY = 0;
       let minX = x;
       let minY = y;
       let maxX = x;
       let maxY = y;
+      let touchesExclusionMargin = false;
       visited[start] = 1;
       queue[tail] = start;
       tail += 1;
@@ -127,8 +140,17 @@ export async function analyzeSarImage(imageUrl: string): Promise<SarAnomalyAnaly
         const pixelY = Math.floor(pixel / width);
         const intensity = intensities[pixel];
         sumIntensity += intensity;
+        if (intensity <= NEAR_BLACK_INTENSITY) nearBlackPixelCount += 1;
         sumX += pixelX;
         sumY += pixelY;
+        if (
+          pixelX === EDGE_EXCLUSION_MARGIN ||
+          pixelX === width - EDGE_EXCLUSION_MARGIN - 1 ||
+          pixelY === EDGE_EXCLUSION_MARGIN ||
+          pixelY === height - EDGE_EXCLUSION_MARGIN - 1
+        ) {
+          touchesExclusionMargin = true;
+        }
         minX = Math.min(minX, pixelX);
         minY = Math.min(minY, pixelY);
         maxX = Math.max(maxX, pixelX);
@@ -140,8 +162,8 @@ export async function analyzeSarImage(imageUrl: string): Promise<SarAnomalyAnaly
             const neighborX = pixelX + offsetX;
             const neighborY = pixelY + offsetY;
             if (
-              neighborX < EDGE_MARGIN || neighborX >= width - EDGE_MARGIN ||
-              neighborY < EDGE_MARGIN || neighborY >= height - EDGE_MARGIN
+              neighborX < EDGE_EXCLUSION_MARGIN || neighborX >= width - EDGE_EXCLUSION_MARGIN ||
+              neighborY < EDGE_EXCLUSION_MARGIN || neighborY >= height - EDGE_EXCLUSION_MARGIN
             ) {
               continue;
             }
@@ -155,9 +177,19 @@ export async function analyzeSarImage(imageUrl: string): Promise<SarAnomalyAnaly
         }
       }
 
-      if (tail < MIN_REGION_AREA) continue;
-
       const meanIntensity = sumIntensity / tail;
+      const nearBlackFraction = nearBlackPixelCount / tail;
+      if (
+        tail < MIN_REGION_AREA ||
+        touchesExclusionMargin ||
+        (
+          meanIntensity <= NEAR_BLACK_COMPONENT_MEAN &&
+          nearBlackFraction >= NEAR_BLACK_COMPONENT_FRACTION
+        )
+      ) {
+        continue;
+      }
+
       candidates.push({
         id: 0,
         boundingBox: {

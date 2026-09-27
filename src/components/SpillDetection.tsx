@@ -1009,7 +1009,7 @@ export const SpillDetection: React.FC<SpillDetectionProps> = ({
                     </div>
                   )}
                   <p className="text-[11px] text-[var(--ot-muted)]">
-                    Background median: {sarAnalysis.backgroundIntensity.toFixed(1)} / 255 · Dark-pixel threshold: {sarAnalysis.thresholdIntensity.toFixed(1)} / 255 · Regions smaller than 12 pixels and the outer 3-pixel image border are excluded.
+                    Background median: {sarAnalysis.backgroundIntensity.toFixed(1)} / 255 · Dark-pixel threshold: {sarAnalysis.thresholdIntensity.toFixed(1)} / 255 · Components smaller than 12 pixels, components touching the 16-pixel inner edge margin, and near-black no-data regions are excluded.
                   </p>
                 </>
               )}
