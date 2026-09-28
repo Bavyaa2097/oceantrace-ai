@@ -3,13 +3,12 @@ import { ArrowRight, Play, Radar, Ship, Waves } from 'lucide-react';
 
 interface LandingPageProps {
   onExplore: () => void;
-  onRunDemo: () => void;
-  onLoginClick: () => void;
+  onRunDemo?: () => void;
+  onLoginClick?: () => void;
 }
 
 export const LandingPage: React.FC<LandingPageProps> = ({
   onExplore,
-  onRunDemo,
 }) => {
   return (
     <div className="space-y-8 py-5 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -38,13 +37,6 @@ export const LandingPage: React.FC<LandingPageProps> = ({
               >
                 Explore dashboard
                 <ArrowRight className="h-4 w-4" />
-              </button>
-              <button
-                onClick={onRunDemo}
-                className="inline-flex items-center justify-center gap-2 rounded-lg border border-[#B9D9F3] bg-white px-5 py-3 text-sm font-semibold text-[#0B74DE] transition-colors hover:bg-[#D8EDFF]"
-              >
-                <Play className="h-4 w-4 fill-current" />
-                View guided scenario
               </button>
             </div>
           </div>

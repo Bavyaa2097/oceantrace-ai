@@ -1,18 +1,12 @@
 import React, { useState } from 'react';
-import { Waves, Play, LogOut, ToggleLeft, ToggleRight, LogIn, ChevronDown, Moon, Sun, Menu, X } from 'lucide-react';
+import { Waves, LogOut, LogIn, ChevronDown, Menu, X } from 'lucide-react';
 
 interface NavbarProps {
   activeTab: string;
   setActiveTab: (tab: string) => void;
-  isDemoMode: boolean;
-  setIsDemoMode: (demo: boolean) => void;
-  onRunDemoScenario: () => void;
-  isDemoRunning: boolean;
   currentUser: { name: string; email: string; role: string; organization: string } | null;
   onOpenAuth: () => void;
   onLogout: () => void;
-  isNightMode: boolean;
-  onToggleTheme: () => void;
   workspaceMode?: boolean;
   showDesktopNavigation?: boolean;
   workspaceStatusLabels?: Record<string, string | null>;
@@ -21,15 +15,9 @@ interface NavbarProps {
 export const Navbar: React.FC<NavbarProps> = ({
   activeTab,
   setActiveTab,
-  isDemoMode,
-  setIsDemoMode,
-  onRunDemoScenario,
-  isDemoRunning,
   currentUser,
   onOpenAuth,
   onLogout,
-  isNightMode,
-  onToggleTheme,
   workspaceMode = false,
   showDesktopNavigation = true,
   workspaceStatusLabels = {},
@@ -74,7 +62,7 @@ export const Navbar: React.FC<NavbarProps> = ({
           </div>
 
           {/* Center Navigation Tabs */}
-          <nav className={`${workspaceMode || !showDesktopNavigation ? 'hidden' : 'hidden md:flex'} items-center space-x-0.5 overflow-x-auto scrollbar-none py-1`}>
+          <nav className={`${workspaceMode || !showDesktopNavigation ? 'hidden' : 'hidden md:flex'} flex-1 items-center justify-center space-x-1 px-4 overflow-x-auto scrollbar-none py-1`}>
             {navTabs.map((tab) => (
               <button
                 key={tab.id}
@@ -96,54 +84,12 @@ export const Navbar: React.FC<NavbarProps> = ({
           {/* Right Action Controls */}
           <div className="flex items-center gap-2 shrink-0">
             <button
-              onClick={onToggleTheme}
-              className="flex items-center justify-center w-8 h-8 rounded-lg border border-[#D9E3E7] bg-[#F4F7F8] text-[#176B87] hover:border-[#176B87] transition-all"
-              aria-label={isNightMode ? 'Switch to bright mode' : 'Switch to night mode'}
-              title={isNightMode ? 'Bright mode' : 'Night mode'}
-            >
-              {isNightMode ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
-            </button>
-            <button
               onClick={() => setShowMobileMenu((current) => !current)}
               className="mobile-menu-toggle hidden items-center justify-center w-8 h-8 rounded-lg border border-[#D9E3E7] bg-[#F4F7F8] text-[#176B87]"
               aria-label={showMobileMenu ? 'Close navigation menu' : 'Open navigation menu'}
               aria-expanded={showMobileMenu}
             >
               {showMobileMenu ? <X className="w-4 h-4" /> : <Menu className="w-4 h-4" />}
-            </button>
-            {/* Scenario playback is only available with sample data. */}
-            {isDemoMode && <button
-              onClick={onRunDemoScenario}
-              disabled={isDemoRunning}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-semibold transition-all whitespace-nowrap ${
-                isDemoRunning
-                  ? 'bg-[#fff7e6] text-[#a66f11] border border-[#e8c978] cursor-wait'
-                  : 'bg-[#176B87] hover:bg-[#123B4A] text-white shadow-sm'
-              }`}
-            >
-              <Play className={`w-3.5 h-3.5 ${isDemoRunning ? '' : 'fill-current'}`} />
-              <span>{isDemoRunning ? 'Running' : 'Play scenario'}</span>
-            </button>}
-
-            {/* Mode Toggle */}
-            <button
-              onClick={() => setIsDemoMode(!isDemoMode)}
-              className="hidden md:flex items-center gap-1 px-2 py-1 rounded-md text-[10px] border border-[#D9E3E7] bg-[#F4F7F8] text-[#647780] hover:border-[#A9C3CA] hover:text-[#123B4A] transition-all"
-              title="Toggle sample data or live data mode"
-              aria-label={`Switch to ${isDemoMode ? 'live' : 'sample'} mode`}
-              aria-pressed={!isDemoMode}
-            >
-              {isDemoMode ? (
-                <>
-                  <ToggleRight className="w-3.5 h-3.5 text-blue-400" />
-                  <span className="text-blue-400">SAMPLE</span>
-                </>
-              ) : (
-                <>
-                  <ToggleLeft className="w-3.5 h-3.5 text-slate-500" />
-                  <span className="text-slate-400">LIVE</span>
-                </>
-              )}
             </button>
 
             {/* User Profile & Role Badge */}
@@ -247,48 +193,6 @@ export const Navbar: React.FC<NavbarProps> = ({
             </button>
           ))}
           <div className="mobile-navigation-actions">
-            {isDemoMode && <button
-              onClick={() => {
-                onRunDemoScenario();
-                setShowMobileMenu(false);
-              }}
-              disabled={isDemoRunning}
-              className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-[#176B87] text-white text-[11px] font-bold"
-            >
-              <Play className="w-3.5 h-3.5 fill-current" />
-              {isDemoRunning ? 'RUNNING...' : 'PLAY SCENARIO'}
-            </button>}
-            <button
-              onClick={() => {
-                setIsDemoMode(!isDemoMode);
-                setShowMobileMenu(false);
-              }}
-              className="flex flex-1 items-center justify-center gap-1.5 px-3 py-2 rounded-lg border border-[#D9E3E7] bg-[#F4F7F8] text-[#647780] text-[11px] font-semibold"
-              aria-label={`Switch to ${isDemoMode ? 'live' : 'sample'} mode`}
-              aria-pressed={!isDemoMode}
-            >
-              {isDemoMode ? (
-                <>
-                  <ToggleRight className="w-3.5 h-3.5 text-blue-400" />
-                  <span>SAMPLE</span>
-                </>
-              ) : (
-                <>
-                  <ToggleLeft className="w-3.5 h-3.5 text-slate-500" />
-                  <span>LIVE</span>
-                </>
-              )}
-            </button>
-            <button
-              onClick={() => {
-                onToggleTheme();
-                setShowMobileMenu(false);
-              }}
-              className="flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg border border-[#D9E3E7] bg-[#F4F7F8] text-[#176B87] text-[11px] font-semibold"
-            >
-              {isNightMode ? <Sun className="w-3.5 h-3.5" /> : <Moon className="w-3.5 h-3.5" />}
-              {isNightMode ? 'Bright mode' : 'Night mode'}
-            </button>
             {currentUser ? (
               <button
                 onClick={() => {

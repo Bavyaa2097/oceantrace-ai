@@ -13,7 +13,7 @@ import {
 interface WorkspaceSidebarProps {
   activeTab: string;
   onNavigate: (tab: string) => void;
-  isDemoMode: boolean;
+  isDemoMode?: boolean;
   investigationStarted: boolean;
   statusLabels: Record<string, string | null>;
 }
@@ -45,7 +45,6 @@ const sections = [
 export const WorkspaceSidebar: React.FC<WorkspaceSidebarProps> = ({
   activeTab,
   onNavigate,
-  isDemoMode,
   investigationStarted,
   statusLabels,
 }) => (
@@ -58,7 +57,7 @@ export const WorkspaceSidebar: React.FC<WorkspaceSidebarProps> = ({
           </h2>
           <nav className="mt-2 space-y-1" aria-label={section.title}>
             {section.items.map(({ id, label, icon: Icon }) => {
-              const statusLabel = !isDemoMode ? statusLabels[id] : null;
+              const statusLabel = statusLabels[id];
               return (
                 <button
                   key={id}
@@ -83,15 +82,10 @@ export const WorkspaceSidebar: React.FC<WorkspaceSidebarProps> = ({
         </section>
       ))}
       <div className="mt-auto rounded-lg border border-[var(--ot-border)] bg-[var(--ot-shell)] p-3">
-        <div className="text-[10px] font-semibold text-[var(--ot-muted)]">DATA MODE</div>
+        <div className="text-[10px] font-semibold text-[var(--ot-muted)]">WORKSPACE STATUS</div>
         <div className="mt-1 text-xs font-semibold text-[var(--ot-text)]">
-          {isDemoMode ? 'Demo' : 'Live'}
+          {investigationStarted ? 'Live investigation in progress' : 'Ready for investigation'}
         </div>
-        {!isDemoMode && (
-          <div className="mt-1 text-[10px] leading-4 text-[var(--ot-text-secondary)]">
-            {investigationStarted ? 'Investigation in progress' : 'No live investigation started'}
-          </div>
-        )}
       </div>
     </div>
   </aside>

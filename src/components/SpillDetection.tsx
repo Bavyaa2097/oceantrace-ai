@@ -1025,8 +1025,13 @@ export const SpillDetection: React.FC<SpillDetectionProps> = ({
   const showDriftWorkspace = workspaceTab === 'drift-analysis';
   const showVesselWorkspace = workspaceTab === 'vessel-intelligence';
 
+  const onStatusChangeRef = useRef(onStatusChange);
   useEffect(() => {
-    if (isDemoMode || !onStatusChange) return;
+    onStatusChangeRef.current = onStatusChange;
+  }, [onStatusChange]);
+
+  useEffect(() => {
+    if (isDemoMode || !onStatusChangeRef.current) return;
     const started =
       searchState !== 'idle' ||
       selectedAcquisition !== null ||
@@ -1034,7 +1039,7 @@ export const SpillDetection: React.FC<SpillDetectionProps> = ({
       investigationPointValid ||
       aisResult !== null ||
       correlationResult !== null;
-    onStatusChange({
+    onStatusChangeRef.current({
       started,
       searchStatus: searchState === 'idle'
         ? 'Not searched'
@@ -1084,7 +1089,6 @@ export const SpillDetection: React.FC<SpillDetectionProps> = ({
     });
   }, [
     isDemoMode,
-    onStatusChange,
     searchState,
     acquisitions.length,
     selectedAcquisition,
