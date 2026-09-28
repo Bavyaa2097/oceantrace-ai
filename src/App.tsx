@@ -20,7 +20,7 @@ import { LiveInvestigationStatus } from './components/SpillDetection';
 
 import { INITIAL_SPILL_INCIDENT, TRACKED_VESSELS, TIMELINE_EVENTS } from './data/demoData';
 import { Vessel } from './types';
-import { ShieldCheck, Eye, Lock, FileText, Database, Activity } from 'lucide-react';
+import { ShieldCheck, Eye, Lock, FileText, Database, Activity, ArrowRight } from 'lucide-react';
 
 const InvestigationPlaceholder: React.FC<{ title: string }> = ({ title }) => (
   <section className="glass-panel mx-auto max-w-4xl rounded-xl border p-6 sm:p-8">
@@ -30,6 +30,15 @@ const InvestigationPlaceholder: React.FC<{ title: string }> = ({ title }) => (
     </p>
   </section>
 );
+
+import {
+  createNewInvestigationRecord,
+  deleteInvestigation,
+  InvestigationRecord,
+  listSavedInvestigations,
+  loadInvestigation,
+  saveInvestigation,
+} from './services/investigationStore';
 
 export const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState<string>('landing');
@@ -41,6 +50,64 @@ export const App: React.FC = () => {
   const [showAdminAuditLogs, setShowAdminAuditLogs] = useState<boolean>(false);
   const [isNightMode, setIsNightMode] = useState<boolean>(() => localStorage.getItem('oceantrace_theme') === 'night');
   const [resetInvestigationKey, setResetInvestigationKey] = useState(0);
+
+  const [currentInvestigationId, setCurrentInvestigationId] = useState<string>('OT-20260928-1001');
+  const [savedInvestigations, setSavedInvestigations] = useState<InvestigationRecord[]>([]);
+  const [selectedLoadedRecord, setSelectedLoadedRecord] = useState<InvestigationRecord | null>(null);
+  const [deleteConfirmationId, setDeleteConfirmationId] = useState<string | null>(null);
+
+  const handleOpenSavedInvestigation = (id: string) => {
+    const record = loadInvestigation(id);
+    if (!record) return;
+    setCurrentInvestigationId(record.id);
+    setSelectedLoadedRecord(record);
+    setLiveInvestigationStatus({
+      started: true,
+      searchStatus: record.sentinel1.searchStatus,
+      acquisitionDatetime: record.sentinel1.selectedAcquisition?.datetime || null,
+      anomalyCandidateCount: record.sar.sarAnalysis ? record.sar.sarAnalysis.candidates.length : (record.sar.selectedAnomalyCandidateId ? 1 : null),
+      focus: record.focus.lat !== null && record.focus.lon !== null ? `${record.focus.lat.toFixed(5)}, ${record.focus.lon.toFixed(5)}` : null,
+      aisObservationCount: record.ais.observations.length,
+      aisUniqueVesselCount: record.ais.uniqueVessels.length,
+      correlationStatus: record.correlation.correlationStatus,
+      bbox: record.sentinel1.bbox,
+      from: record.sentinel1.from,
+      to: record.sentinel1.to,
+      acquisition: record.sentinel1.selectedAcquisition,
+      candidates: record.sar.sarAnalysis?.candidates || null,
+      selectedAnomalyCandidateId: record.sar.selectedAnomalyCandidateId,
+      latitude: record.focus.lat !== null ? String(record.focus.lat) : undefined,
+      longitude: record.focus.lon !== null ? String(record.focus.lon) : undefined,
+      radiusKm: String(record.focus.radiusKm),
+      candidateFocusStatus: record.focus.focusSource === 'sar-derived' ? 'derived' : (record.focus.focusSource as any),
+      comparisonAcquisition: record.comparison.comparisonAcquisition,
+      comparisonState: record.comparison.comparisonStatus as any,
+      comparison: record.comparison.comparisonResult,
+      comparisonCompletedAt: record.comparison.comparisonCompletedAt,
+      aisState: record.ais.aisStatus as any,
+      aisResult: record.ais.observations.length > 0 || record.ais.uniqueVessels.length > 0 ? {
+        ok: true,
+        service: 'GFW AIS Candidate Search',
+        investigation: {
+          lat: record.focus.lat || 0,
+          lon: record.focus.lon || 0,
+          from: record.ais.observationWindow?.from || '',
+          to: record.ais.observationWindow?.to || '',
+          radiusKm: record.focus.radiusKm,
+        },
+        observationCount: record.ais.observations.length,
+        uniqueVesselCount: record.ais.uniqueVessels.length,
+        observations: record.ais.observations,
+        vessels: record.ais.uniqueVessels,
+      } : null,
+      selectedVesselId: record.ais.selectedVesselId,
+      correlationState: record.correlation.correlationStatus === 'Complete' ? 'success' : 'idle',
+      correlationResult: record.correlation.result,
+      correlationCompletedAt: record.correlation.correlationCompletedAt,
+    });
+    setActiveTab('spill-analysis');
+  };
+
   const [liveInvestigationStatus, setLiveInvestigationStatus] = useState<LiveInvestigationStatus>({
     started: false,
     searchStatus: 'Not searched',
@@ -51,7 +118,82 @@ export const App: React.FC = () => {
     aisUniqueVesselCount: null,
     correlationStatus: 'Not calculated',
   });
+
   const isWorkspaceTab = !['landing', 'login'].includes(activeTab);
+
+  useEffect(() => {
+    setSavedInvestigations(listSavedInvestigations());
+  }, []);
+
+  const handleSaveCurrentInvestigation = () => {
+    const record: InvestigationRecord = {
+      id: currentInvestigationId,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      status: liveInvestigationStatus.started ? (liveInvestigationStatus.correlationStatus === 'Complete' ? 'Correlated' : liveInvestigationStatus.focus ? 'Focus Set' : 'In Progress') : 'Draft',
+      sentinel1: {
+        bbox: liveInvestigationStatus.bbox || [72.0, 10.0, 72.8, 11.2],
+        from: liveInvestigationStatus.from || '',
+        to: liveInvestigationStatus.to || '',
+        acquisitionsCount: liveInvestigationStatus.acquisition ? 1 : 0,
+        selectedAcquisition: liveInvestigationStatus.acquisition || null,
+        searchStatus: liveInvestigationStatus.searchStatus,
+      },
+      sar: {
+        imageUrl: null,
+        sarAnalysis: null,
+        selectedAnomalyCandidateId: liveInvestigationStatus.selectedAnomalyCandidateId || null,
+        analysisStatus: liveInvestigationStatus.anomalyCandidateCount !== null ? 'Complete' : 'Not analyzed',
+        analysisCompletedAt: liveInvestigationStatus.analysisCompletedAt || null,
+      },
+      focus: {
+        lat: liveInvestigationStatus.latitude ? Number(liveInvestigationStatus.latitude) : null,
+        lon: liveInvestigationStatus.longitude ? Number(liveInvestigationStatus.longitude) : null,
+        radiusKm: liveInvestigationStatus.radiusKm ? Number(liveInvestigationStatus.radiusKm) : 25,
+        focusSource: liveInvestigationStatus.candidateFocusStatus === 'derived' ? 'sar-derived' : (liveInvestigationStatus.candidateFocusStatus || null),
+      },
+      comparison: {
+        comparisonAcquisition: liveInvestigationStatus.comparisonAcquisition || null,
+        comparisonAnalysis: null,
+        comparisonStatus: liveInvestigationStatus.comparisonState || 'Not run',
+        comparisonError: null,
+        comparisonResult: liveInvestigationStatus.comparison || null,
+        comparisonCompletedAt: liveInvestigationStatus.comparisonCompletedAt || null,
+      },
+      ais: {
+        observationWindow: liveInvestigationStatus.aisResult ? { from: liveInvestigationStatus.aisResult.investigation.from, to: liveInvestigationStatus.aisResult.investigation.to } : null,
+        observations: liveInvestigationStatus.aisResult?.observations || [],
+        uniqueVessels: liveInvestigationStatus.aisResult?.vessels || [],
+        selectedVesselId: liveInvestigationStatus.selectedVesselId || null,
+        aisStatus: liveInvestigationStatus.aisResult ? 'Complete' : 'Not searched',
+      },
+      correlation: {
+        result: liveInvestigationStatus.correlationResult || null,
+        correlationStatus: liveInvestigationStatus.correlationStatus,
+        correlationCompletedAt: liveInvestigationStatus.correlationCompletedAt || null,
+      },
+      report: {
+        reportReady: Boolean(liveInvestigationStatus.started && liveInvestigationStatus.acquisitionDatetime && liveInvestigationStatus.anomalyCandidateCount !== null && liveInvestigationStatus.focus),
+        generatedAt: null,
+      },
+    };
+
+    saveInvestigation(record);
+    setSavedInvestigations(listSavedInvestigations());
+  };
+
+  const handleStartNewInvestigation = () => {
+    const newRecord = createNewInvestigationRecord();
+    setCurrentInvestigationId(newRecord.id);
+    setResetInvestigationKey((key) => key + 1);
+    setActiveTab('spill-analysis');
+  };
+
+  const handleDeleteSavedInvestigation = (id: string) => {
+    deleteInvestigation(id);
+    setSavedInvestigations(listSavedInvestigations());
+    setDeleteConfirmationId(null);
+  };
 
   // Authentication & Role State (localStorage persistence)
   const [currentUser, setCurrentUser] = useState<{
@@ -194,13 +336,15 @@ export const App: React.FC = () => {
     trajectory: liveInvestigationStatus.aisObservationCount
       ? `✓ ${liveInvestigationStatus.aisObservationCount} observations`
       : 'Awaiting vessel',
-    reports: 'Not generated',
-    'ai-pipeline': 'Informational',
+    reports: liveInvestigationStatus.started && liveInvestigationStatus.acquisitionDatetime && liveInvestigationStatus.anomalyCandidateCount !== null && liveInvestigationStatus.focus ? '✓ Ready' : 'Pending',
+    'ai-pipeline': liveInvestigationStatus.started ? '✓ Active' : 'Idle',
   };
+
   const liveAisResult = liveInvestigationStatus.aisResult;
   const liveSelectedVessel = liveAisResult?.vessels.find(
     (vessel) => vessel.id === liveInvestigationStatus.selectedVesselId,
   ) ?? null;
+
   const liveTimelineEvents = [
     liveInvestigationStatus.acquisitionDatetime
       ? {
@@ -220,8 +364,8 @@ export const App: React.FC = () => {
       ? {
           label: 'Investigation focus set',
           detail: liveInvestigationStatus.candidateFocusStatus === 'derived'
-            ? 'Derived from selected SAR anomaly candidate'
-            : 'Coordinates entered in Drift & Origin',
+            ? 'Focus derived from selected SAR anomaly'
+            : 'Focus manually adjusted in Drift & Origin',
           timestamp: null,
         }
       : null,
@@ -338,7 +482,7 @@ export const App: React.FC = () => {
                 <p className="text-sm text-[#60727a] mt-1">
                   {isDemoMode
                     ? 'Review active alerts, vessel movements, and the latest satellite observations.'
-                    : 'Review the current investigation or begin a new Sentinel-1 observation search.'}
+                    : 'Review the current live investigation or begin a new Sentinel-1 observation search.'}
                 </p>
               </div>
               {isDemoMode && (
@@ -351,6 +495,7 @@ export const App: React.FC = () => {
                 </div>
               )}
             </div>
+
             {!isDemoMode && (
               <div className="rounded-lg border border-[var(--ot-border)] bg-[var(--ot-card)] p-3">
                 <div className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-[var(--ot-muted)]">Investigation workflow</div>
@@ -361,7 +506,7 @@ export const App: React.FC = () => {
                     { label: 'Focus', complete: liveInvestigationStatus.focus !== null },
                     { label: 'AIS', complete: liveInvestigationStatus.aisObservationCount !== null },
                     { label: 'Correlation', complete: liveInvestigationStatus.correlationStatus === 'Complete' },
-                    { label: 'Report', complete: false },
+                    { label: 'Report', complete: Boolean(liveInvestigationStatus.started && liveInvestigationStatus.acquisitionDatetime && liveInvestigationStatus.anomalyCandidateCount !== null && liveInvestigationStatus.focus) },
                   ].map(({ label, complete }, index) => (
                     <React.Fragment key={label}>
                       {index > 0 && <span className="text-[var(--ot-muted)]" aria-hidden="true">→</span>}
@@ -377,6 +522,7 @@ export const App: React.FC = () => {
                 </ol>
               </div>
             )}
+
             {isDemoMode ? (
               <>
                 <MetricCards />
@@ -403,61 +549,206 @@ export const App: React.FC = () => {
             ) : (
               liveInvestigationStatus.started ? (
                 <div className="space-y-4">
-                  <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
                     <div>
-                      <h2 className="text-base font-semibold text-[var(--ot-text)]">Current investigation</h2>
-                      <p className="mt-1 text-sm text-[var(--ot-text-secondary)]">
-                        Live status from this workspace. No sample results are included.
+                      <h2 className="text-base font-bold font-mono text-[var(--ot-text)]">
+                        CURRENT INVESTIGATION: {currentInvestigationId}
+                      </h2>
+                      <p className="mt-0.5 text-xs text-[var(--ot-text-secondary)] font-mono">
+                        Real-state investigation findings. No simulated or sample metrics are displayed in Live Mode.
                       </p>
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => setResetInvestigationKey((key) => key + 1)}
-                      className="rounded-md border border-[var(--ot-border)] px-3 py-2 text-xs font-semibold text-[var(--ot-text-secondary)] hover:border-[var(--ot-primary)] hover:text-[var(--ot-primary)]"
-                    >
-                      Reset Investigation
-                    </button>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={handleSaveCurrentInvestigation}
+                        className="rounded-md bg-[var(--ot-primary)] px-3 py-2 text-xs font-bold text-white hover:bg-[var(--ot-primary-dark)] transition-all"
+                      >
+                        Save Investigation
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleStartNewInvestigation}
+                        className="rounded-md border border-[var(--ot-border)] px-3 py-2 text-xs font-bold text-[var(--ot-text-secondary)] hover:border-[var(--ot-primary)] hover:text-[var(--ot-primary)] transition-all"
+                      >
+                        Start New / Reset
+                      </button>
+                    </div>
                   </div>
-                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
+
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4 font-mono">
                     {[
+                      ['Investigation ID', currentInvestigationId],
                       ['Sentinel-1 catalogue', liveInvestigationStatus.searchStatus],
                       ['Selected acquisition', liveInvestigationStatus.acquisitionDatetime ?? 'None selected'],
                       ['Area of interest', liveInvestigationStatus.bbox
                         ? `${liveInvestigationStatus.bbox[0]}, ${liveInvestigationStatus.bbox[1]} – ${liveInvestigationStatus.bbox[2]}, ${liveInvestigationStatus.bbox[3]}`
                         : 'Not set'],
-                      ['Observation period', liveInvestigationStatus.from && liveInvestigationStatus.to
-                        ? `${liveInvestigationStatus.from} – ${liveInvestigationStatus.to}`
-                        : 'Not set'],
-                      ['SAR anomaly candidates', liveInvestigationStatus.anomalyCandidateCount === null ? 'Not analyzed' : String(liveInvestigationStatus.anomalyCandidateCount)],
+                      ['SAR anomaly candidates', liveInvestigationStatus.anomalyCandidateCount === null ? 'Not analyzed' : `${liveInvestigationStatus.anomalyCandidateCount} regions`],
                       ['Investigation focus', liveInvestigationStatus.focus ?? 'Not set'],
                       ['AIS observations / vessels', liveInvestigationStatus.aisObservationCount === null
                         ? 'Not searched'
-                        : `${liveInvestigationStatus.aisObservationCount} / ${liveInvestigationStatus.aisUniqueVesselCount ?? 0}`],
-                      ['Correlation', liveInvestigationStatus.correlationStatus],
+                        : `${liveInvestigationStatus.aisObservationCount} obs · ${liveInvestigationStatus.aisUniqueVesselCount ?? 0} vessels`],
+                      ['Correlation status', liveInvestigationStatus.correlationStatus],
                     ].map(([label, value]) => (
                       <div key={label} className="rounded-lg border border-[var(--ot-border)] bg-[var(--ot-card)] p-4">
-                        <div className="text-xs text-[var(--ot-muted)]">{label}</div>
-                        <div className="mt-2 break-words text-sm font-semibold text-[var(--ot-text)]">{value}</div>
+                        <div className="text-[10px] uppercase font-bold text-[var(--ot-muted)] tracking-wider">{label}</div>
+                        <div className="mt-1.5 break-words text-xs font-bold text-[var(--ot-text)]">{value}</div>
                       </div>
                     ))}
                   </div>
+
+                  {savedInvestigations.length > 0 && (
+                    <div className="mt-6 rounded-lg border border-[var(--ot-border)] bg-[var(--ot-card)] p-4 space-y-3 font-mono">
+                      <h3 className="text-xs font-bold uppercase tracking-wider text-[var(--ot-text)]">
+                        Saved Live Investigations ({savedInvestigations.length})
+                      </h3>
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-left text-xs">
+                          <thead className="bg-[var(--ot-shell)] text-[var(--ot-muted)] border-b border-[var(--ot-border)]">
+                            <tr>
+                              <th className="p-2 font-bold">Record ID</th>
+                              <th className="p-2 font-bold">Created / Updated</th>
+                              <th className="p-2 font-bold">Status</th>
+                              <th className="p-2 font-bold">Sentinel-1 Acquisition</th>
+                              <th className="p-2 font-bold">AIS Vessels</th>
+                              <th className="p-2 font-bold">Report Status</th>
+                              <th className="p-2 font-bold text-right">Actions</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-[var(--ot-border)] text-[var(--ot-text-secondary)]">
+                            {savedInvestigations.map((inv) => (
+                              <tr key={inv.id}>
+                                <td className="p-2 font-bold text-[var(--ot-text)]">{inv.id}</td>
+                                <td className="p-2 text-[11px]">
+                                  <div>{new Date(inv.createdAt).toLocaleDateString()}</div>
+                                  <div className="text-[10px] text-[var(--ot-muted)]">Upd: {new Date(inv.updatedAt).toLocaleTimeString()}</div>
+                                </td>
+                                <td className="p-2">{inv.status}</td>
+                                <td className="p-2">{inv.sentinel1.selectedAcquisition?.datetime ? new Date(inv.sentinel1.selectedAcquisition.datetime).toISOString().replace('T', ' ').slice(0, 16) : 'None'}</td>
+                                <td className="p-2">{inv.ais.uniqueVessels.length} vessels ({inv.ais.observations.length} obs)</td>
+                                <td className="p-2">
+                                  <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${inv.report.reportReady ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'bg-slate-500/10 text-slate-400 border border-slate-500/20'}`}>
+                                    {inv.report.reportReady ? '✓ Ready' : 'Pending'}
+                                  </span>
+                                </td>
+                                <td className="p-2 text-right">
+                                  <button
+                                    type="button"
+                                    onClick={() => handleOpenSavedInvestigation(inv.id)}
+                                    className="mr-2 rounded bg-[var(--ot-primary)] px-2 py-1 text-[11px] font-bold text-white hover:bg-[var(--ot-primary-dark)]"
+                                  >
+                                    Open
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => setDeleteConfirmationId(inv.id)}
+                                    className="px-2 py-1 text-red-500 hover:underline text-[11px] font-bold"
+                                  >
+                                    Delete
+                                  </button>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
                 </div>
               ) : (
-                <div className="glass-panel rounded-xl border p-6 sm:p-8">
-                  <h2 className="text-lg font-bold text-[var(--ot-text)]">No live investigation started</h2>
-                  <p className="mt-2 text-sm text-[var(--ot-text-secondary)]">
-                    Start by defining an area and time range for a Sentinel-1 catalogue search.
-                  </p>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setResetInvestigationKey((key) => key + 1);
-                      setActiveTab('spill-analysis');
-                    }}
-                    className="mt-4 rounded-md bg-[var(--ot-primary)] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[var(--ot-primary-dark)]"
-                  >
-                    Start New Investigation
-                  </button>
+                <div className="space-y-6">
+                  <div className="glass-panel rounded-xl border p-6 sm:p-8 space-y-4">
+                    <h2 className="text-lg font-bold font-mono text-[var(--ot-text)]">No live investigation started</h2>
+                    <p className="text-sm text-[var(--ot-text-secondary)]">
+                      Start by defining an area of interest and time window to query real Sentinel-1 SAR satellite observations from Copernicus.
+                    </p>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 pt-2">
+                      <div className="p-3 rounded-lg border border-[var(--ot-border)] bg-[var(--ot-shell)] space-y-1">
+                        <div className="font-mono font-bold text-xs text-[var(--ot-text)]">1. SENTINEL-1 SAR</div>
+                        <div className="text-[11px] text-[var(--ot-text-secondary)]">Real GRD catalogue search & VV grayscale image retrieval.</div>
+                      </div>
+                      <div className="p-3 rounded-lg border border-[var(--ot-border)] bg-[var(--ot-shell)] space-y-1">
+                        <div className="font-mono font-bold text-xs text-[var(--ot-text)]">2. ANOMALY DETECTOR</div>
+                        <div className="text-[11px] text-[var(--ot-text-secondary)]">Deterministic backscatter intensity segmentation.</div>
+                      </div>
+                      <div className="p-3 rounded-lg border border-[var(--ot-border)] bg-[var(--ot-shell)] space-y-1">
+                        <div className="font-mono font-bold text-xs text-[var(--ot-text)]">3. GFW AIS PRESENCE</div>
+                        <div className="text-[11px] text-[var(--ot-text-secondary)]">AIS vessel grid-cell presence from Global Fishing Watch.</div>
+                      </div>
+                      <div className="p-3 rounded-lg border border-[var(--ot-border)] bg-[var(--ot-shell)] space-y-1">
+                        <div className="font-mono font-bold text-xs text-[var(--ot-text)]">4. CORRELATION</div>
+                        <div className="text-[11px] text-[var(--ot-text-secondary)]">Transparent 4-factor spatio-temporal heuristic.</div>
+                      </div>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={handleStartNewInvestigation}
+                      className="mt-4 rounded-lg bg-[var(--ot-primary)] px-5 py-3 text-sm font-bold text-white hover:bg-[var(--ot-primary-dark)] transition-all shadow-sm"
+                    >
+                      Start New Investigation
+                    </button>
+                  </div>
+
+                  {savedInvestigations.length > 0 && (
+                    <div className="rounded-xl border border-[var(--ot-border)] bg-[var(--ot-card)] p-5 space-y-3 font-mono">
+                      <h3 className="text-xs font-bold uppercase tracking-wider text-[var(--ot-text)]">
+                        Saved Live Investigations ({savedInvestigations.length})
+                      </h3>
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-left text-xs">
+                          <thead className="bg-[var(--ot-shell)] text-[var(--ot-muted)] border-b border-[var(--ot-border)]">
+                            <tr>
+                              <th className="p-2.5 font-bold">Record ID</th>
+                              <th className="p-2.5 font-bold">Created / Updated</th>
+                              <th className="p-2.5 font-bold">Status</th>
+                              <th className="p-2.5 font-bold">Sentinel-1 Acquisition</th>
+                              <th className="p-2.5 font-bold">AIS Vessels</th>
+                              <th className="p-2.5 font-bold">Report Status</th>
+                              <th className="p-2.5 font-bold text-right">Actions</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-[var(--ot-border)] text-[var(--ot-text-secondary)]">
+                            {savedInvestigations.map((inv) => (
+                              <tr key={inv.id}>
+                                <td className="p-2.5 font-bold text-[var(--ot-text)]">{inv.id}</td>
+                                <td className="p-2.5 text-[11px]">
+                                  <div>{new Date(inv.createdAt).toLocaleDateString()}</div>
+                                  <div className="text-[10px] text-[var(--ot-muted)]">Upd: {new Date(inv.updatedAt).toLocaleTimeString()}</div>
+                                </td>
+                                <td className="p-2.5">{inv.status}</td>
+                                <td className="p-2.5">{inv.sentinel1.selectedAcquisition?.datetime ? new Date(inv.sentinel1.selectedAcquisition.datetime).toISOString().replace('T', ' ').slice(0, 16) : 'None'}</td>
+                                <td className="p-2.5">{inv.ais.uniqueVessels.length} vessels ({inv.ais.observations.length} obs)</td>
+                                <td className="p-2.5">
+                                  <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${inv.report.reportReady ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'bg-slate-500/10 text-slate-400 border border-slate-500/20'}`}>
+                                    {inv.report.reportReady ? '✓ Ready' : 'Pending'}
+                                  </span>
+                                </td>
+                                <td className="p-2.5 text-right">
+                                  <button
+                                    type="button"
+                                    onClick={() => handleOpenSavedInvestigation(inv.id)}
+                                    className="mr-2 rounded bg-[var(--ot-primary)] px-2.5 py-1 text-xs font-bold text-white hover:bg-[var(--ot-primary-dark)]"
+                                  >
+                                    Open
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => setDeleteConfirmationId(inv.id)}
+                                    className="px-2.5 py-1 text-red-500 hover:underline text-xs font-bold"
+                                  >
+                                    Delete
+                                  </button>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
                 </div>
               )
             )}
@@ -473,6 +764,7 @@ export const App: React.FC = () => {
         }>
           <SpillDetection
             isDemoMode={isDemoMode}
+            loadedRecord={selectedLoadedRecord}
             workspaceTab={
               activeTab === 'dashboard' || activeTab === 'spill-analysis' || activeTab === 'drift-analysis' || activeTab === 'vessel-intelligence'
                 ? activeTab
@@ -507,16 +799,28 @@ export const App: React.FC = () => {
           isDemoMode
             ? <IncidentTimeline events={TIMELINE_EVENTS} />
             : liveInvestigationStatus.started ? (
-              <section className="glass-panel mx-auto w-full max-w-5xl rounded-xl border p-5 sm:p-6">
-                <h1 className="text-lg font-bold text-[var(--ot-text)]">Investigation timeline</h1>
-                <p className="mt-1 text-sm text-[var(--ot-text-secondary)]">Evidence chronology from the current Live investigation state.</p>
+              <section className="glass-panel mx-auto w-full max-w-5xl rounded-xl border p-5 sm:p-6 space-y-4">
+                <div className="flex justify-between items-start">
+                  <div>
+                    <h1 className="text-lg font-bold font-mono text-[var(--ot-text)]">Investigation Timeline Chronology</h1>
+                    <p className="mt-1 text-xs text-[var(--ot-text-secondary)] font-mono">Actual evidence timestamps from current live investigation state.</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab('trajectory')}
+                    className="px-3 py-1.5 rounded-lg bg-[var(--ot-primary)] text-white text-xs font-bold flex items-center gap-1"
+                  >
+                    <span>Continue to Trajectory</span>
+                    <ArrowRight className="w-3.5 h-3.5" />
+                  </button>
+                </div>
                 {liveTimelineEvents.length > 0 ? (
-                  <ol className="mt-5 space-y-3">
+                  <ol className="mt-5 space-y-3 font-mono">
                     {liveTimelineEvents.map((event, index) => (
-                      <li key={`${event.label}-${index}`} className="flex min-w-0 gap-3 rounded-lg border border-[var(--ot-border)] bg-[var(--ot-shell)] p-3">
+                      <li key={`${event.label}-${index}`} className="flex min-w-0 gap-3 rounded-lg border border-[var(--ot-border)] bg-[var(--ot-shell)] p-3.5">
                         <span className="mt-1.5 h-2 w-2 shrink-0 rounded-full bg-[var(--ot-primary)]" />
                         <div className="min-w-0">
-                          <div className="text-sm font-semibold text-[var(--ot-text)]">{event.label}</div>
+                          <div className="text-xs font-bold text-[var(--ot-text)]">{event.label}</div>
                           <div className="mt-1 break-words text-xs leading-5 text-[var(--ot-text-secondary)]">{event.detail}</div>
                           {event.timestamp && (
                             <time className="mt-1 block text-[11px] text-[var(--ot-muted)]" dateTime={event.timestamp}>
@@ -528,15 +832,15 @@ export const App: React.FC = () => {
                     ))}
                   </ol>
                 ) : (
-                  <p className="mt-4 rounded-md border border-[var(--ot-border)] bg-[var(--ot-shell)] p-3 text-sm text-[var(--ot-text-secondary)]">
-                    No evidence events are available yet.
+                  <p className="mt-4 rounded-md border border-[var(--ot-border)] bg-[var(--ot-shell)] p-3 text-xs font-mono text-[var(--ot-text-secondary)]">
+                    No live investigation timeline is available yet.
                   </p>
                 )}
               </section>
             ) : (
               <section className="glass-panel mx-auto w-full max-w-5xl rounded-xl border p-5 sm:p-6">
-                <h1 className="text-lg font-bold text-[var(--ot-text)]">Investigation timeline</h1>
-                <p className="mt-2 text-sm text-[var(--ot-text-secondary)]">No live investigation timeline is available yet.</p>
+                <h1 className="text-lg font-bold font-mono text-[var(--ot-text)]">Investigation Timeline</h1>
+                <p className="mt-2 text-xs font-mono text-[var(--ot-text-secondary)]">No live investigation timeline is available yet.</p>
               </section>
             )
         )}
@@ -549,65 +853,73 @@ export const App: React.FC = () => {
                 spillIncident={INITIAL_SPILL_INCIDENT}
               />
             : (
-              <section className="glass-panel mx-auto w-full max-w-6xl rounded-xl border p-5 sm:p-6">
-                <h1 className="text-lg font-bold text-[var(--ot-text)]">Vessel trajectory evidence</h1>
+              <section className="glass-panel mx-auto w-full max-w-6xl rounded-xl border p-5 sm:p-6 space-y-4">
+                <div className="flex justify-between items-start">
+                  <div>
+                    <h1 className="text-lg font-bold font-mono text-[var(--ot-text)]">Vessel Trajectory Evidence</h1>
+                    <p className="text-xs text-[var(--ot-text-secondary)] font-mono">Actual AIS-derived vessel observations from Global Fishing Watch.</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab('reports')}
+                    className="px-3 py-1.5 rounded-lg bg-[var(--ot-primary)] text-white text-xs font-bold flex items-center gap-1"
+                  >
+                    <span>Open Report</span>
+                    <ArrowRight className="w-3.5 h-3.5" />
+                  </button>
+                </div>
                 {liveAisResult && liveAisResult.observations.length > 0 ? (
-                  <div className="mt-4 space-y-4">
+                  <div className="space-y-4 font-mono">
                     <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                       <div className="rounded-lg border border-[var(--ot-border)] bg-[var(--ot-shell)] p-3">
-                        <div className="text-xs text-[var(--ot-muted)]">Selected vessel</div>
-                        <div className="mt-1 text-sm font-semibold text-[var(--ot-text)]">
+                        <div className="text-[10px] text-[var(--ot-muted)] uppercase font-bold">Selected Vessel</div>
+                        <div className="mt-1 text-xs font-bold text-[var(--ot-text)]">
                           {liveSelectedVessel
                             ? `${liveSelectedVessel.name ?? liveSelectedVessel.id}${liveSelectedVessel.mmsi ? ` · MMSI ${liveSelectedVessel.mmsi}` : ''}`
                             : 'No vessel selected'}
                         </div>
                       </div>
                       <div className="rounded-lg border border-[var(--ot-border)] bg-[var(--ot-shell)] p-3">
-                        <div className="text-xs text-[var(--ot-muted)]">Investigation period</div>
-                        <div className="mt-1 break-words text-sm font-semibold text-[var(--ot-text)]">
+                        <div className="text-[10px] text-[var(--ot-muted)] uppercase font-bold">Investigation Period</div>
+                        <div className="mt-1 break-words text-xs font-bold text-[var(--ot-text)]">
                           {liveAisResult.investigation.from} – {liveAisResult.investigation.to}
                         </div>
                       </div>
                     </div>
-                    <p className="rounded-lg border border-[var(--ot-border)] bg-[var(--ot-shell)] p-3 text-xs leading-5 text-[var(--ot-text-secondary)]">
-                      Locations below are AIS-derived GFW grid-cell-center observations, not exact vessel fixes. Observations are shown individually; no connected route is inferred.
+                    <p className="rounded-lg border border-amber-500/20 bg-amber-900/10 p-3 text-xs leading-5 text-amber-300">
+                      AIS positions represent GFW grid-cell centers, not exact vessel fixes. Observations are shown individually; no connected route is inferred.
                     </p>
                     <div className="max-h-[28rem] max-w-full overflow-auto rounded-lg border border-[var(--ot-border)]">
                       <table className="w-full min-w-[680px] text-left text-xs">
-                        <thead className="sticky top-0 bg-[var(--ot-shell)] text-[var(--ot-text-secondary)]">
+                        <thead className="sticky top-0 bg-[var(--ot-shell)] text-[var(--ot-muted)]">
                           <tr>
-                            <th className="px-3 py-2 font-semibold">Vessel</th>
-                            <th className="px-3 py-2 font-semibold">MMSI</th>
-                            <th className="px-3 py-2 font-semibold">Observation time</th>
-                            <th className="px-3 py-2 font-semibold">Latitude</th>
-                            <th className="px-3 py-2 font-semibold">Longitude</th>
-                            <th className="px-3 py-2 font-semibold">Location type</th>
+                            <th className="px-3 py-2 font-bold">Vessel</th>
+                            <th className="px-3 py-2 font-bold">MMSI</th>
+                            <th className="px-3 py-2 font-bold">Observation Time</th>
+                            <th className="px-3 py-2 font-bold">Latitude</th>
+                            <th className="px-3 py-2 font-bold">Longitude</th>
+                            <th className="px-3 py-2 font-bold">Location Type</th>
                           </tr>
                         </thead>
-                        <tbody className="divide-y divide-[var(--ot-border)]">
+                        <tbody className="divide-y divide-[var(--ot-border)] text-[var(--ot-text-secondary)]">
                           {liveAisResult.observations
                             .filter((observation) => !liveInvestigationStatus.selectedVesselId || observation.id === liveInvestigationStatus.selectedVesselId)
                             .map((observation, index) => (
                               <tr key={`${observation.id ?? observation.mmsi ?? 'observation'}-${observation.date}-${index}`}>
-                                <td className="px-3 py-2 text-[var(--ot-text)]">{observation.name ?? observation.id ?? 'Unknown vessel'}</td>
-                                <td className="px-3 py-2 text-[var(--ot-text-secondary)]">{observation.mmsi ?? '—'}</td>
-                                <td className="px-3 py-2 text-[var(--ot-text-secondary)]">{observation.date}</td>
-                                <td className="px-3 py-2 text-[var(--ot-text-secondary)]">{observation.lat}</td>
-                                <td className="px-3 py-2 text-[var(--ot-text-secondary)]">{observation.lon}</td>
-                                <td className="px-3 py-2 text-[var(--ot-text-secondary)]">GFW grid-cell center</td>
+                                <td className="px-3 py-2 font-bold text-[var(--ot-text)]">{observation.name ?? observation.id ?? 'Unknown vessel'}</td>
+                                <td className="px-3 py-2">{observation.mmsi ?? '—'}</td>
+                                <td className="px-3 py-2">{observation.date}</td>
+                                <td className="px-3 py-2">{observation.lat}</td>
+                                <td className="px-3 py-2">{observation.lon}</td>
+                                <td className="px-3 py-2">GFW grid-cell center</td>
                               </tr>
                             ))}
                         </tbody>
                       </table>
                     </div>
-                    {liveInvestigationStatus.selectedVesselId && liveAisResult.observations.every(
-                      (observation) => observation.id !== liveInvestigationStatus.selectedVesselId,
-                    ) && (
-                      <p className="text-xs text-[var(--ot-text-secondary)]">No observations are available for the selected vessel.</p>
-                    )}
                   </div>
                 ) : (
-                  <p className="mt-2 text-sm text-[var(--ot-text-secondary)]">No vessel trajectory data is available yet.</p>
+                  <p className="mt-2 text-xs font-mono text-[var(--ot-text-secondary)]">No vessel trajectory data is available yet.</p>
                 )}
               </section>
             )
@@ -615,23 +927,54 @@ export const App: React.FC = () => {
 
         {/* REPORTS TAB */}
         {activeTab === 'reports' && (
-          isDemoMode
-            ? <InvestigationReport
-                spillIncident={INITIAL_SPILL_INCIDENT}
-                topCandidates={TRACKED_VESSELS}
-              />
-            : <InvestigationPlaceholder title="An investigation report is not available until live findings are assembled." />
+          <InvestigationReport
+            isDemoMode={isDemoMode}
+            spillIncident={INITIAL_SPILL_INCIDENT}
+            topCandidates={TRACKED_VESSELS}
+            liveStatus={liveInvestigationStatus}
+            investigationId={currentInvestigationId}
+            onNavigateToPipeline={() => setActiveTab('ai-pipeline')}
+          />
         )}
 
         {/* AI PIPELINE TAB */}
         {activeTab === 'ai-pipeline' && (
-          isDemoMode
-            ? <AIPipeline />
-            : <InvestigationPlaceholder title="No automated analysis is running for this live investigation." />
+          <AIPipeline
+            isDemoMode={isDemoMode}
+            liveStatus={liveInvestigationStatus}
+          />
         )}
       </main>
       </div>
       </div>
+
+      {/* Delete Saved Investigation Confirmation Modal */}
+      {deleteConfirmationId && (
+        <div className="fixed inset-0 z-[600] flex items-center justify-center p-4 bg-black/60">
+          <div className="relative w-full max-w-md glass-panel rounded-xl border border-[#26334d] p-6 shadow-2xl space-y-4 font-mono">
+            <h3 className="text-sm font-bold text-white uppercase tracking-wider">Confirm Delete Record</h3>
+            <p className="text-xs text-slate-300">
+              Delete investigation {deleteConfirmationId}? This action cannot be undone.
+            </p>
+            <div className="flex justify-end gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setDeleteConfirmationId(null)}
+                className="px-3 py-1.5 rounded bg-[#182238] text-slate-300 hover:text-white text-xs font-bold border border-[#26334d]"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => handleDeleteSavedInvestigation(deleteConfirmationId)}
+                className="px-3 py-1.5 rounded bg-red-600 hover:bg-red-500 text-white text-xs font-bold shadow-sm"
+              >
+                Confirm Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Admin Audit Logs Modal (For Administrator Role) */}
       {showAdminAuditLogs && (

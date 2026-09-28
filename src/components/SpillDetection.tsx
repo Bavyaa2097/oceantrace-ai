@@ -1,6 +1,7 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import {
   AlertTriangle,
+  ArrowRight,
   CheckCircle2,
   Clock3,
   ExternalLink,
@@ -13,6 +14,7 @@ import {
   Search,
   Upload,
 } from 'lucide-react';
+import { InvestigationRecord } from '../services/investigationStore';
 import {
   AisApiError,
   AisCandidatesResponse,
@@ -51,6 +53,7 @@ interface SpillDetectionProps {
   onContinueToDrift: () => void;
   workspaceTab?: 'dashboard' | 'spill-analysis' | 'drift-analysis' | 'vessel-intelligence';
   resetRequestKey?: number;
+  loadedRecord?: InvestigationRecord | null;
   onStatusChange?: (status: LiveInvestigationStatus) => void;
 }
 
@@ -74,7 +77,7 @@ export interface LiveInvestigationStatus {
   latitude?: string;
   longitude?: string;
   radiusKm?: string;
-  candidateFocusStatus?: 'derived' | 'unavailable' | null;
+  candidateFocusStatus?: 'derived' | 'manual' | 'unavailable' | null;
   comparisonAcquisition?: SatelliteAcquisition | null;
   comparisonState?: RequestState;
   comparison?: SarAnomalyComparison | null;
@@ -193,12 +196,14 @@ export const SpillDetection: React.FC<SpillDetectionProps> = ({
   onContinueToDrift,
   workspaceTab = 'spill-analysis',
   resetRequestKey = 0,
+  loadedRecord,
   onStatusChange,
 }) => {
   const now = new Date();
   const monthAgo = new Date(now);
   monthAgo.setDate(monthAgo.getDate() - 30);
 
+  const [showContextualMapModal, setShowContextualMapModal] = useState<boolean>(false);
   const [bboxFields, setBboxFields] = useState<string[]>(DEFAULT_BBOX.map(String));
   const [fromValue, setFromValue] = useState(toLocalDateTimeInput(monthAgo));
   const [toValue, setToValue] = useState(toLocalDateTimeInput(now));
@@ -250,6 +255,57 @@ export const SpillDetection: React.FC<SpillDetectionProps> = ({
   const correlationRequestInFlight = useRef(false);
   const localAnalysisRequestId = useRef(0);
   const handledResetRequest = useRef(resetRequestKey);
+
+  useEffect(() => {
+    if (!loadedRecord) return;
+    if (loadedRecord.sentinel1.bbox) setBboxFields(loadedRecord.sentinel1.bbox.map(String));
+    if (loadedRecord.sentinel1.from) setFromValue(loadedRecord.sentinel1.from);
+    if (loadedRecord.sentinel1.to) setToValue(loadedRecord.sentinel1.to);
+    if (loadedRecord.sentinel1.selectedAcquisition) {
+      setSelectedAcquisition(loadedRecord.sentinel1.selectedAcquisition);
+      setAcquisitions([loadedRecord.sentinel1.selectedAcquisition]);
+      setSearchState('success');
+    }
+    if (loadedRecord.sar.selectedAnomalyCandidateId) {
+      setSelectedAnomalyCandidateId(loadedRecord.sar.selectedAnomalyCandidateId);
+    }
+    if (loadedRecord.focus.lat !== null) setInvestigationLat(String(loadedRecord.focus.lat));
+    if (loadedRecord.focus.lon !== null) setInvestigationLon(String(loadedRecord.focus.lon));
+    if (loadedRecord.focus.radiusKm) setSearchRadiusKm(String(loadedRecord.focus.radiusKm));
+    if (loadedRecord.focus.focusSource) {
+      setCandidateFocusStatus(loadedRecord.focus.focusSource === 'sar-derived' ? 'derived' : (loadedRecord.focus.focusSource as any));
+    }
+    if (loadedRecord.comparison.comparisonAcquisition) {
+      setComparisonAcquisitionId(loadedRecord.comparison.comparisonAcquisition.id || '');
+      setSarComparison(loadedRecord.comparison.comparisonResult);
+      setSarComparisonState(loadedRecord.comparison.comparisonStatus as any);
+    }
+    if (loadedRecord.ais.observations.length > 0 || loadedRecord.ais.uniqueVessels.length > 0) {
+      setAisResult({
+        ok: true,
+        service: 'GFW AIS Candidate Search',
+        investigation: {
+          lat: loadedRecord.focus.lat || 0,
+          lon: loadedRecord.focus.lon || 0,
+          from: loadedRecord.ais.observationWindow?.from || '',
+          to: loadedRecord.ais.observationWindow?.to || '',
+          radiusKm: loadedRecord.focus.radiusKm,
+        },
+        observationCount: loadedRecord.ais.observations.length,
+        uniqueVesselCount: loadedRecord.ais.uniqueVessels.length,
+        observations: loadedRecord.ais.observations,
+        vessels: loadedRecord.ais.uniqueVessels,
+      });
+      setAisState('success');
+    }
+    if (loadedRecord.ais.selectedVesselId) {
+      setSelectedVesselId(loadedRecord.ais.selectedVesselId);
+    }
+    if (loadedRecord.correlation.result) {
+      setCorrelationResult(loadedRecord.correlation.result);
+      setCorrelationState('success');
+    }
+  }, [loadedRecord]);
 
   useEffect(() => {
     return () => {
@@ -932,31 +988,38 @@ export const SpillDetection: React.FC<SpillDetectionProps> = ({
         vessels: aisResult.vessels,
       };
     }
-    if (
-      candidateFocusStatus !== 'derived' ||
-      !investigationPointValid ||
-      !investigationRadiusValid
-    ) {
-      return undefined;
+    if (investigationPointValid && investigationRadiusValid) {
+      return {
+        focus: {
+          lat: Number(investigationLat),
+          lon: Number(investigationLon),
+        },
+        radiusKm: Number(searchRadiusKm) || 25,
+        observations: [],
+        vessels: [],
+      };
     }
-    return {
-      focus: {
-        lat: Number(investigationLat),
-        lon: Number(investigationLon),
-      },
-      radiusKm: Number(searchRadiusKm),
-      observations: [],
-      vessels: [],
-    };
+    if (selectedAcquisition?.bbox) {
+      const center = getBoundingBoxCenter(selectedAcquisition.bbox);
+      if (center) {
+        return {
+          focus: center,
+          radiusKm: Number(searchRadiusKm) || 25,
+          observations: [],
+          vessels: [],
+        };
+      }
+    }
+    return undefined;
   }, [
     isDemoMode,
     aisResult,
-    candidateFocusStatus,
     investigationPointValid,
     investigationRadiusValid,
     investigationLat,
     investigationLon,
     searchRadiusKm,
+    selectedAcquisition,
   ]);
   const showSpillWorkspace = workspaceTab === 'spill-analysis';
   const showDriftWorkspace = workspaceTab === 'drift-analysis';
@@ -1475,13 +1538,106 @@ export const SpillDetection: React.FC<SpillDetectionProps> = ({
                 </p>
                 <button
                   type="button"
-                  onClick={onNavigateToMap}
+                  onClick={() => setShowContextualMapModal(true)}
                   disabled={!selectedAcquisition || imageState !== 'success'}
                   className="inline-flex shrink-0 items-center justify-center gap-2 rounded-md bg-[var(--ot-primary)] px-3 py-2 text-xs font-semibold text-white hover:bg-[var(--ot-primary-dark)] disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   <Eye className="h-4 w-4" />
-                  VIEW ON MAP
+                  VIEW MAP
                 </button>
+              </div>
+            )}
+
+            {showContextualMapModal && (
+              <div className="fixed inset-0 z-[600] flex items-center justify-center p-3 sm:p-4 bg-black/75 overflow-y-auto min-w-0 min-h-0">
+                <div className="relative w-full max-w-5xl rounded-xl border border-[var(--ot-border)] bg-[var(--ot-card)] p-4 sm:p-5 shadow-2xl space-y-3 sm:space-y-4 my-auto flex flex-col font-mono min-w-0 max-h-[92vh] overflow-y-auto min-h-0">
+                  {/* Header */}
+                  <div className="flex items-center justify-between border-b border-[var(--ot-border)] pb-3 shrink-0 min-w-0">
+                    <div>
+                      <div className="text-[10px] uppercase font-bold text-[var(--ot-primary)] tracking-wider">
+                        SPATIAL INVESTIGATION MAP
+                      </div>
+                      <h2 className="text-base sm:text-lg font-extrabold text-[var(--ot-text)] mt-0.5">
+                        CONTEXTUAL SPATIAL FINDINGS OVERLAY
+                      </h2>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setShowContextualMapModal(false)}
+                      className="rounded-md border border-[var(--ot-border)] bg-[var(--ot-shell)] px-3 py-1.5 text-xs font-bold text-[var(--ot-text)] hover:bg-[var(--ot-card)]"
+                    >
+                      Close Map
+                    </button>
+                  </div>
+
+                  {/* Compact Evidence Summary */}
+                  <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 text-xs shrink-0 min-w-0">
+                    <div className="p-2.5 rounded border border-[var(--ot-border)] bg-[var(--ot-shell)] min-w-0">
+                      <span className="text-[10px] text-[var(--ot-muted)] block uppercase">SAR ANOMALY</span>
+                      <span className="font-bold text-[var(--ot-text)] truncate block">
+                        {selectedAnomalyCandidateId ? `Candidate #${selectedAnomalyCandidateId}` : (sarAnalysis ? `${sarAnalysis.candidates.length} candidates` : 'None')}
+                      </span>
+                    </div>
+                    <div className="p-2.5 rounded border border-[var(--ot-border)] bg-[var(--ot-shell)] min-w-0">
+                      <span className="text-[10px] text-[var(--ot-muted)] block uppercase">INVESTIGATION FOCUS</span>
+                      <span className="font-bold text-[var(--ot-text)] truncate block">
+                        {investigationPointValid ? `${Number(investigationLat).toFixed(3)}°, ${Number(investigationLon).toFixed(3)}°` : 'Not set'}
+                      </span>
+                    </div>
+                    <div className="p-2.5 rounded border border-[var(--ot-border)] bg-[var(--ot-shell)] min-w-0">
+                      <span className="text-[10px] text-[var(--ot-muted)] block uppercase">RADIUS</span>
+                      <span className="font-bold text-[var(--ot-text)]">{searchRadiusKm} km</span>
+                    </div>
+                    <div className="p-2.5 rounded border border-[var(--ot-border)] bg-[var(--ot-shell)] min-w-0">
+                      <span className="text-[10px] text-[var(--ot-muted)] block uppercase">AIS OBSERVATIONS</span>
+                      <span className="font-bold text-[var(--ot-text)]">{aisResult ? `${aisResult.observationCount} obs` : 'Not searched'}</span>
+                    </div>
+                    <div className="p-2.5 rounded border border-[var(--ot-border)] bg-[var(--ot-shell)] min-w-0">
+                      <span className="text-[10px] text-[var(--ot-muted)] block uppercase">UNIQUE VESSELS</span>
+                      <span className="font-bold text-[var(--ot-text)]">{aisResult ? `${aisResult.uniqueVesselCount} vessels` : 'Not searched'}</span>
+                    </div>
+                  </div>
+
+                  {/* Map */}
+                  <div className="w-full h-[400px] sm:h-[480px] shrink-0 rounded-lg overflow-hidden border border-[var(--ot-border)] min-h-[350px] min-w-0 relative">
+                    <MainMap
+                      heightClass="h-full w-full min-h-[350px]"
+                      liveInvestigation={liveMapInvestigation}
+                      onSelectVesselAndNavigate={(vesselId) => {
+                        setSelectedVesselId(vesselId);
+                        setShowContextualMapModal(false);
+                        onNavigateToMap();
+                      }}
+                    />
+                  </div>
+
+                  {/* Footer controls */}
+                  <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 pt-2 border-t border-[var(--ot-border)] shrink-0 min-w-0">
+                    <span className="text-[11px] text-[var(--ot-muted)]">
+                      AIS positions represent GFW grid-cell centers, not exact vessel fixes.
+                    </span>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setShowContextualMapModal(false)}
+                        className="px-3 py-1.5 rounded border border-[var(--ot-border)] bg-[var(--ot-shell)] text-xs font-bold text-[var(--ot-text)]"
+                      >
+                        Close Map
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowContextualMapModal(false);
+                          onNavigateToMap();
+                        }}
+                        className="px-3 py-1.5 rounded bg-[var(--ot-primary)] text-xs font-bold text-white flex items-center gap-1"
+                      >
+                        <span>View Vessel Evidence</span>
+                        <ArrowRight className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                </div>
               </div>
             )}
           </section>

@@ -9,6 +9,7 @@ interface MainMapProps {
   vessels?: Vessel[];
   selectedVesselId?: string | null;
   onSelectVessel?: (vessel: Vessel) => void;
+  onSelectVesselAndNavigate?: (vesselId: string) => void;
   showDriftPath?: boolean;
   showOriginZone?: boolean;
   showVessels?: boolean;
@@ -37,6 +38,7 @@ export const MainMap: React.FC<MainMapProps> = ({
   vessels = [],
   selectedVesselId = null,
   onSelectVessel,
+  onSelectVesselAndNavigate,
   showDriftPath = true,
   showOriginZone = true,
   showVessels = true,
@@ -83,8 +85,9 @@ export const MainMap: React.FC<MainMapProps> = ({
 
     const map = mapRef.current;
     const layerGroup = layersRef.current;
-    if (!layerGroup) return;
+    if (!layerGroup || !map) return;
 
+    map.invalidateSize();
     layerGroup.clearLayers();
 
     if (liveInvestigation) {
@@ -168,24 +171,55 @@ export const MainMap: React.FC<MainMapProps> = ({
             fillOpacity: 0.95,
           }).addTo(layerGroup);
 
+          const vesselId = representative.id || representative.mmsi || '';
+          const btnId = `view-vessel-btn-${vesselId.replace(/[^a-zA-Z0-9]/g, '_')}`;
+
           marker.bindPopup(`
-            <div class="font-sans text-xs">
-              <strong>${escapePopupText(label)}</strong>
+            <div class="font-sans text-xs space-y-1">
+              <strong class="text-sm font-bold text-[#173b43] block">${escapePopupText(label)}</strong>
               <div>MMSI: ${escapePopupText(representative.mmsi)}</div>
               <div>Vessel type: ${escapePopupText(representative.type)}</div>
               <div>Flag: ${escapePopupText(representative.flag)}</div>
               <div>Observation count: ${vesselSummary?.observationCount ?? group.length}</div>
-              <div>Observations at this grid-cell center: ${locationGroup.length}</div>
               <div>Minimum distance: ${minimumDistanceKm === null ? '—' : `${minimumDistanceKm.toFixed(1)} km`}</div>
-              <div class="mt-1 text-slate-500">AIS-derived vessel presence · GFW grid-cell center</div>
+              <div class="mt-1 text-[11px] text-slate-500">AIS-derived vessel presence · GFW grid-cell center</div>
+              ${vesselId ? `
+                <button
+                  id="${btnId}"
+                  type="button"
+                  style="margin-top:8px;width:100%;border-radius:6px;background:#176b87;padding:5px 8px;font-size:11px;font-weight:700;color:#fff;border:none;cursor:pointer;"
+                >
+                  View Vessel Evidence
+                </button>
+              ` : ''}
             </div>
           `);
+
+          marker.on('popupopen', () => {
+            if (!vesselId) return;
+            const btn = document.getElementById(btnId);
+            if (btn) {
+              btn.onclick = () => {
+                onSelectVesselAndNavigate?.(vesselId);
+              };
+            }
+          });
         });
       });
 
       bounds.extend(focusPoint);
       map.fitBounds(bounds, { padding: [28, 28], maxZoom: 13 });
-      return;
+
+      const animTimer = requestAnimationFrame(() => {
+        if (mapRef.current) {
+          mapRef.current.invalidateSize();
+          mapRef.current.fitBounds(bounds, { padding: [28, 28], maxZoom: 13 });
+        }
+      });
+
+      return () => {
+        cancelAnimationFrame(animTimer);
+      };
     }
 
     if (!spillIncident) return;
@@ -351,6 +385,34 @@ export const MainMap: React.FC<MainMapProps> = ({
     return enableMapInteractionOnFocus(map, mapContainer);
   }, []);
 
+  // Trigger invalidateSize whenever the container resizes or mounts inside modal overlays
+  useEffect(() => {
+    const container = mapContainerRef.current;
+    if (!container) return;
+
+    const resizeObserver = new ResizeObserver(() => {
+      if (mapRef.current) {
+        mapRef.current.invalidateSize();
+      }
+    });
+
+    resizeObserver.observe(container);
+
+    const timer1 = setTimeout(() => {
+      if (mapRef.current) mapRef.current.invalidateSize();
+    }, 100);
+
+    const timer2 = setTimeout(() => {
+      if (mapRef.current) mapRef.current.invalidateSize();
+    }, 300);
+
+    return () => {
+      resizeObserver.disconnect();
+      clearTimeout(timer1);
+      clearTimeout(timer2);
+    };
+  }, []);
+
   // Handle Auto-Center Map on Demo Scenario trigger
   useEffect(() => {
     if (mapRef.current && autoCenterTrigger > 0) {
@@ -362,21 +424,18 @@ export const MainMap: React.FC<MainMapProps> = ({
     <div className={`ocean-map relative w-full ${heightClass} rounded-2xl overflow-hidden border border-cyan-500/30 glass-panel shadow-2xl`}>
       {liveInvestigation ? (
         <>
-          <div className="absolute left-14 top-3 z-[400] max-w-[calc(100%-4.5rem)] rounded-lg border border-cyan-500/30 bg-navy-900/95 px-3 py-1 text-[11px] font-semibold text-slate-100 shadow">
+          <div className="absolute left-14 top-3 z-[400] max-w-[calc(100%-4.5rem)] rounded-lg border border-[var(--ot-border)] bg-[var(--ot-card)]/90 backdrop-blur-md px-3 py-1 text-[11px] font-semibold text-[var(--ot-text)] shadow-sm">
             LIVE INVESTIGATION · {liveInvestigation.observations.length} AIS-derived vessel presence observations
           </div>
-          <div className="absolute bottom-3 left-3 z-[400] max-w-[calc(100%-1.5rem)] rounded-lg border border-slate-600 bg-navy-900/95 p-3 text-[11px] text-slate-100 shadow">
-            <div className="mb-1 flex items-center gap-2">
+          <div className="absolute bottom-3 left-3 z-[400] max-w-[240px] rounded-lg border border-[var(--ot-border)] bg-[var(--ot-card)]/90 backdrop-blur-md p-2 text-[10px] text-[var(--ot-text)] shadow-sm space-y-1 pointer-events-none">
+            <div className="flex items-center gap-2">
               <span className="h-2.5 w-2.5 rounded-full border border-white bg-[#f0a43a]" />
-              AIS-derived vessel presence
+              <span>AIS-derived vessel presence</span>
             </div>
-            <div className="mb-1 flex items-center gap-2">
+            <div className="flex items-center gap-2">
               <span className="h-2.5 w-2.5 rounded-full border-2 border-white bg-[#176b87]" />
-              Investigation focus
+              <span>Investigation focus</span>
             </div>
-            <p className="max-w-sm leading-4 text-slate-300">
-              AIS positions represent GFW grid-cell centers, not exact vessel fixes.
-            </p>
           </div>
         </>
       ) : (
@@ -387,7 +446,7 @@ export const MainMap: React.FC<MainMapProps> = ({
       )}
 
       {/* Map Container */}
-      <div ref={mapContainerRef} className="w-full h-full" />
+      <div ref={mapContainerRef} className="w-full h-full min-h-[380px]" style={{ width: '100%', height: '100%', minHeight: '380px' }} />
 
       {/* Map Legend Overlay */}
       {!liveInvestigation && <div className="absolute bottom-3 left-3 z-[400] bg-navy-900/95 backdrop-blur-md p-3 rounded-xl border border-cyan-500/30 text-[10px] font-mono space-y-1 shadow-xl hidden sm:block">
